@@ -5,9 +5,12 @@ Roda sozinho no GitHub Actions, **sem IA e sem tokens**. A cada execução ele:
 1. Lê direto nas lojas **KaBuM** e **Americanas** (preço parcelado, Pix, parcelas e vendedor; as duas também listam produtos vendidos pela Magalu).
 2. Lê a prévia pública de **7 canais de promoção do Telegram**. Ignora posts riscados ou com cupom esgotado, e só alerta posts com até 6 h.
 3. Grava em `data/historico.csv` **apenas o que mudou** (preço novo, oferta nova, saiu da loja).
-4. Manda **alerta no Telegram** quando um PS5 fica **≤ R$ 3.500** (no mínimo 3x quando é da loja).
-5. Manda um **resumo diário às 9h** com o PS5 mais barato (top 3) e o GTA 6 (top 2).
-6. Atualiza a **página de preços atuais** (GitHub Pages), que você pode abrir a qualquer hora no celular.
+4. Separa cada oferta em **3 preços**: **Parcelado** (cartão em 3x ou mais sem juros), **Crédito** (cartão, qualquer número de parcelas) e **Pix**.
+5. Manda **alerta no Telegram** quando:
+   - um PS5 fica **≤ R$ 3.500** no parcelado (foco) ou no Pix;
+   - aparece um **novo menor preço do PS5** em qualquer uma das 3 categorias (queda mínima de R$ 1; uma mensagem por oferta).
+6. Manda um **resumo diário às 9h** com o menor preço de cada categoria (PS5 e GTA 6).
+7. Atualiza a **página de preços atuais** (GitHub Pages), com os 3 preços, cupom, vendedor e botão para a oferta de cada loja, e o menor preço por dia.
 
 Frequência: a cada **10 min de 26 a 30/11** e a cada **2 h** no resto do ano. O GitHub pode atrasar alguns minutos em horário de pico.
 

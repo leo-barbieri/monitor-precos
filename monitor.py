@@ -77,7 +77,10 @@ def coletar_kabum():
             try:
                 h = baixar(url)
                 m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', h, re.S)
-                itens = json.loads(m.group(1))["props"]["pageProps"]["data"]["catalogServer"]["data"]
+                dados = json.loads(m.group(1))["props"]["pageProps"]["data"]
+                if isinstance(dados, str):  # páginas de categoria vêm com o JSON serializado
+                    dados = json.loads(dados)
+                itens = dados["catalogServer"]["data"]
             except Exception as e:  # loja fora do ar / layout mudou
                 log(f"KaBuM falhou em {termo}: {e}")
                 continue
@@ -312,6 +315,42 @@ def enviar_supabase(linhas):
         log(f"Supabase falhou (histórico local segue salvo): {e}")
 
 
+# ---------------------------------------------------------------- 3 categorias de preço
+CATS = (("parcelado", "Crédito parcelado"), ("credito", "Crédito"), ("pix", "Pix"))
+CURTO = {"parcelado": "Parcelado", "credito": "Crédito", "pix": "Pix"}
+
+
+def mesmo_vendedor(o):
+    return not o["vendedor"] or re.sub(r"\W", "", o["vendedor"]).lower() == re.sub(r"\W", "", o["loja"]).lower()
+NOME_PROD = {"ps5": "PS5", "gta6": "GTA 6"}
+
+
+def valores(o):
+    """pix = à vista no Pix; credito = no cartão (qualquer nº de parcelas);
+    parcelado = no cartão em >= parcelas_minimas sem juros."""
+    cred = o["preco_parcelado"] or 0.0
+    return {"pix": o["preco_pix"] or 0.0, "credito": cred,
+            "parcelado": cred if o["n_parcelas"] >= CFG["parcelas_minimas"] else 0.0}
+
+
+def confiavel(o):
+    if o["verificado"] != "sim":
+        return True  # canal de promo: sinalizado como não verificado
+    return any(v.lower() in o["vendedor"].lower() for v in CFG["vendedores_confiaveis"])
+
+
+def melhores(ofertas, prod):
+    """Menor valor de cada categoria entre as ofertas atuais: {cat: (valor, oferta)}."""
+    res = {}
+    for o in ofertas:
+        if o["produto"] != prod or not confiavel(o):
+            continue
+        for cat, v in valores(o).items():
+            if v and (cat not in res or v < res[cat][0]):
+                res[cat] = (v, o)
+    return res
+
+
 # ---------------------------------------------------------------- Telegram bot
 def enviar_telegram(texto):
     token, chat = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
@@ -323,48 +362,84 @@ def enviar_telegram(texto):
     urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=dados, timeout=20)
 
 
+def selo(o):
+    return "✅ verificado na loja" if o["verificado"] == "sim" else f"⚠️ não verificado · {o['fonte']} {o['hora_post']}"
+
+
 def linha_msg(o):
-    selo = "✅ verificado na loja" if o["verificado"] == "sim" else f"⚠️ {o['fonte']} {o['hora_post']}"
-    vend = f" ({o['vendedor']})" if o["vendedor"] and o["vendedor"] != o["loja"] else ""
-    partes = [f"<b>{o['loja']}{vend}</b>"]
-    if o["preco_parcelado"]:
-        partes.append(f"{br(o['preco_parcelado'])} {o['parcelas']}".strip())
-    if o["preco_pix"]:
-        partes.append(f"Pix {br(o['preco_pix'])}")
-    if o["cupom"]:
-        partes.append(f"cupom {o['cupom']}")
-    return " | ".join(partes) + f"\n{selo}\n{o['link']}"
+    v = valores(o)
+    vend = "" if mesmo_vendedor(o) else f" ({html.escape(o['vendedor'])})"
+    partes = []
+    if v["parcelado"]:
+        partes.append(f"💳 {br(v['parcelado'])} em {html.escape(o['parcelas'])}")
+    elif v["credito"]:
+        partes.append(f"💳 {br(v['credito'])}{' ' + html.escape(o['parcelas']) if o['parcelas'] else ''}")
+    if v["pix"]:
+        partes.append(f"Pix {br(v['pix'])}")
+    extra = f"\n🎟 cupom {html.escape(o['cupom'])}" if o["cupom"] else ""
+    return (f"<b>{html.escape(o['loja'])}{vend}</b> — {html.escape(o['titulo'][:70])}\n"
+            f"{' | '.join(partes)}{extra}\n{selo(o)}\n{html.escape(o['link'])}")
 
 
-def confiavel(o):
-    if o["verificado"] != "sim":
-        return True  # canal de promo: sinalizado como não verificado
-    return any(v.lower() in o["vendedor"].lower() for v in CFG["vendedores_confiaveis"])
-
-
-def alertas_ps5(ofertas, estado):
+def alertas(ofertas, estado):
+    """(a) PS5 no preço-alvo (parcelado ou Pix); (b) novo menor preço em cada categoria."""
     alvo, msgs = CFG["ps5_preco_alvo"], []
     lim_post = AGORA - timedelta(hours=CFG["horas_max_post_telegram"])
-    for o in ofertas:
+    recentes = [o for o in ofertas if not (o.get("dt_post") and o["dt_post"] < lim_post)]
+
+    # (a) preço-alvo — foco no parcelado, mas Pix também vale
+    for o in recentes:
         if o["produto"] != "ps5" or not confiavel(o):
             continue
-        if o.get("dt_post") and o["dt_post"] < lim_post:
+        v = valores(o)
+        if not ((v["parcelado"] and v["parcelado"] <= alvo) or (v["pix"] and v["pix"] <= alvo)):
             continue
-        preco = o["preco_parcelado"] or o["preco_pix"]
-        if not preco or preco > alvo:
-            continue
-        if o["preco_parcelado"] and o["verificado"] == "sim" and o["n_parcelas"] < CFG["parcelas_minimas"]:
-            continue
-        chave = f"{o.get('post') or o['link']}|{assinatura(o)}"
+        chave = f"alvo|{o.get('post') or o['link']}|{assinatura(o)}"
         if chave in estado["alertados"]:
             continue
         estado["alertados"].append(chave)
-        msgs.append(linha_msg(o))
+        como = "no parcelado" if v["parcelado"] and v["parcelado"] <= alvo else "só no Pix"
+        msgs.append(f"🚨 <b>PS5 ≤ {br(alvo)} ({como})</b>\n" + linha_msg(o))
+
+    # (b) recordes por categoria (só PS5; GTA 6 fica no painel e no resumo)
+    rec = estado.setdefault("recordes", {})
+    for prod in ("ps5",):
+        atual = melhores(recentes, prod)
+        rp = rec.setdefault(prod, {})
+        por_oferta = {}
+        for cat, nome in CATS:
+            if cat not in atual:
+                continue
+            valor, o = atual[cat]
+            ant = rp.get(cat)
+            if ant and valor > ant["valor"] - 1:  # precisa cair pelo menos R$ 1
+                continue
+            rp[cat] = {"valor": valor, "link": o["link"], "loja": o["loja"],
+                       "quando": AGORA.astimezone(SP).strftime("%d/%m %H:%M")}
+            if ant:  # na 1ª execução só registra, sem alertar
+                chave = o.get("post") or o["link"]
+                por_oferta.setdefault(chave, (o, []))[1].append(
+                    f"• {nome}: <b>{br(valor)}</b> (antes {br(ant['valor'])}, −{br(ant['valor'] - valor)})")
+        for o, linhas in por_oferta.values():
+            msgs.append(f"📉 <b>Novo menor preço {NOME_PROD[prod]}</b>\n" + "\n".join(linhas) + "\n" + linha_msg(o))
     estado["alertados"] = estado["alertados"][-500:]
     if msgs:
-        cab = f"🚨 <b>PS5 ≤ {br(alvo)}</b> — {AGORA.astimezone(SP):%d/%m %H:%M}\n\n"
+        cab = f"🔔 {AGORA.astimezone(SP):%d/%m %H:%M}\n\n"
         enviar_telegram(cab + "\n\n".join(msgs) + "\n\nConfira o preço no carrinho antes de pagar.")
     return len(msgs)
+
+
+def atualizar_diario(ofertas, estado):
+    """Menor valor de cada categoria por dia (base da tabela do painel)."""
+    dia = AGORA.astimezone(SP).strftime("%Y-%m-%d")
+    d = estado.setdefault("diario", {}).setdefault(dia, {})
+    for prod in NOME_PROD:
+        dp = d.setdefault(prod, {})
+        for cat, (v, _) in melhores(ofertas, prod).items():
+            if not dp.get(cat) or v < dp[cat]:
+                dp[cat] = v
+    for velho in sorted(estado["diario"])[:-60]:
+        del estado["diario"][velho]
 
 
 def resumo_diario(ofertas, estado, forcar=False):
@@ -373,66 +448,94 @@ def resumo_diario(ofertas, estado, forcar=False):
         return False
     estado["resumo_enviado"] = hoje.strftime("%Y-%m-%d")
     blocos = [f"📊 <b>Resumo {hoje:%d/%m %H:%M}</b>"]
-    for prod, nome, n in (("ps5", "🎮 PS5 (mais barato)", 3), ("gta6", "🕹️ GTA 6", 2)):
-        cands = [o for o in ofertas if o["produto"] == prod and confiavel(o)]
-        cands.sort(key=lambda o: o["preco_parcelado"] or o["preco_pix"] or 9e9)
-        blocos.append(f"\n<b>{nome}</b>")
-        blocos += [linha_msg(o) for o in cands[:n]] or ["Nenhuma oferta confiável encontrada."]
+    for prod, emoji in (("ps5", "🎮"), ("gta6", "🕹️")):
+        m = melhores(ofertas, prod)
+        blocos.append(f"{emoji} <b>{NOME_PROD[prod]} — menores preços agora</b>")
+        if not m:
+            blocos.append("Nenhuma oferta confiável encontrada.")
+            continue
+        for cat, nome in CATS:
+            if cat in m:
+                v, o = m[cat]
+                blocos.append(f"<b>{nome}: {br(v)}</b>\n" + linha_msg(o))
+    url = os.getenv("PAGINA_URL")
+    if url:
+        blocos.append(f"📱 Todos os preços: {url}")
     enviar_telegram("\n\n".join(blocos))
     return True
 
 
 # ---------------------------------------------------------------- painel (página de preços atuais)
-def gerar_painel(ofertas):
-    """site/index.html: preços desta checagem + menor preço por dia (do histórico)."""
+def gerar_painel(ofertas, estado):
     agora = AGORA.astimezone(SP)
-    def bloco(prod, nome):
-        cands = [o for o in ofertas if o["produto"] == prod and confiavel(o)]
-        cands.sort(key=lambda o: o["preco_parcelado"] or o["preco_pix"] or 9e9)
-        if not cands:
-            return f"<h2>{nome}</h2><p class=m>Nenhuma oferta confiável agora.</p>"
-        linhas = []
-        for o in cands[:12]:
-            selo = ('<span class="ok">✅ loja</span>' if o["verificado"] == "sim"
-                    else f'<span class="wa">⚠️ {html.escape(o["fonte"].replace("Telegram: ", "TG "))} {o["hora_post"]}</span>')
-            alvo = " alvo" if prod == "ps5" and 0 < (o["preco_parcelado"] or o["preco_pix"]) <= CFG["ps5_preco_alvo"] else ""
-            linhas.append(
-                f'<a class="c{alvo}" href="{html.escape(o["link"])}" target="_blank" rel="noopener">'
-                f'<div class="t">{html.escape(o["titulo"])}</div>'
-                f'<div class="p"><b>{br(o["preco_parcelado"]) if o["preco_parcelado"] else "—"}</b> '
-                f'<small>{html.escape(o["parcelas"])}</small></div>'
-                f'<div class="m">Pix {br(o["preco_pix"])} · {html.escape(o["loja"])}'
-                f'{" (" + html.escape(o["vendedor"]) + ")" if o["vendedor"] and o["vendedor"].lower() != o["loja"].lower() else ""}'
-                f'{" · cupom " + html.escape(o["cupom"]) if o["cupom"] else ""} · {selo}</div></a>')
-        return f"<h2>{nome}</h2>" + "".join(linhas)
+    alvo = CFG["ps5_preco_alvo"]
+    e = html.escape
 
-    # menor preço verificado por dia (últimos 14 dias)
-    hist = {}
-    if os.path.exists(HIST):
-        for r in csv.DictReader(open(HIST, encoding="utf-8")):
-            if r["verificado"] != "sim" or not r["preco_parcelado"]:
-                continue
-            k = (r["produto"], r["checado_em"][:10])
-            hist[k] = min(hist.get(k, 9e9), float(r["preco_parcelado"]))
-    dias = sorted({d for _, d in hist}, reverse=True)[:14]
-    tab = "".join(f"<tr><td>{d[8:10]}/{d[5:7]}</td><td>{br(hist.get(('ps5', d), 0))}</td>"
-                  f"<td>{br(hist.get(('gta6', d), 0))}</td></tr>" for d in dias)
+    def card(o, prod):
+        v = valores(o)
+        no_alvo = prod == "ps5" and any(0 < v[c] <= alvo for c in ("parcelado", "pix"))
+        cel = []
+        for cat, nome in CATS:
+            sub = e(o["parcelas"]) if cat == "parcelado" and v[cat] else ("à vista" if cat == "pix" and v[cat] else "")
+            cel.append(f'<div class="v"><span>{CURTO[cat]}</span><b>{br(v[cat]) if v[cat] else "—"}</b><small>{sub}</small></div>')
+        obs = []
+        if o["cupom"]:
+            obs.append(f'🎟 Cupom <code>{e(o["cupom"])}</code>')
+        if not mesmo_vendedor(o):
+            obs.append(f"Vendido por {e(o['vendedor'])}")
+        obs.append('<span class="ok">✅ lido na loja</span>' if o["verificado"] == "sim"
+                   else f'<span class="wa">⚠️ post de {e(o["fonte"].replace("Telegram: ", ""))} às {o["hora_post"]}</span>')
+        return (f'<article class="c{" alvo" if no_alvo else ""}"><div class="h"><b>{e(o["loja"])}</b>'
+                f'{"<em>NO ALVO</em>" if no_alvo else ""}</div><div class="t">{e(o["titulo"])}</div>'
+                f'<div class="g">{"".join(cel)}</div><div class="o">{" · ".join(obs)}</div>'
+                f'<a class="b" href="{e(o["link"])}" target="_blank" rel="noopener">Abrir oferta →</a></article>')
+
+    def secao(prod, titulo):
+        m = melhores(ofertas, prod)
+        rec = estado.get("recordes", {}).get(prod, {})
+        tiles = "".join(
+            f'<div class="k"><span>{CURTO[cat]}</span><b>{br(m[cat][0]) if cat in m else "—"}</b>'
+            f'<small>{e(m[cat][1]["loja"]) if cat in m else ""}'
+            f'{" · recorde " + br(rec[cat]["valor"]) if cat in rec else ""}</small></div>' for cat, nome in CATS)
+        cands = [o for o in ofertas if o["produto"] == prod and confiavel(o)]
+        cands.sort(key=lambda o: min([x for x in valores(o).values() if x] or [9e9]))
+        cards = "".join(card(o, prod) for o in cands[:15]) or '<p class="mu">Nenhuma oferta confiável agora.</p>'
+        dias = sorted(estado.get("diario", {}), reverse=True)[:14]
+        linhas = "".join(
+            f"<tr><td>{d[8:10]}/{d[5:7]}</td>" + "".join(
+                f"<td>{br(estado['diario'][d].get(prod, {}).get(c, 0))}</td>" for c, _ in CATS) + "</tr>" for d in dias)
+        return (f'<h2>{titulo}</h2><div class="kpis">{tiles}</div>{cards}'
+                f'<details><summary>Menor preço por dia</summary><table><tr><th>Dia</th>'
+                + "".join(f"<th>{n}</th>" for _, n in CATS) + f"</tr>{linhas}</table></details>")
+
     pagina = f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300">
 <title>Preços PS5 e GTA 6</title><style>
-:root{{--bg:#f6f6f4;--card:#fff;--tx:#1d1d1b;--mu:#6b6b66;--bd:#e3e3de;--ok:#1a7f37;--wa:#9a6700;--al:#d4f5dc}}
-@media (prefers-color-scheme:dark){{:root{{--bg:#141413;--card:#1f1f1d;--tx:#ececea;--mu:#a3a39d;--bd:#33332f;--ok:#4ac26b;--wa:#d4a72c;--al:#173d22}}}}
-body{{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,sans-serif}}
-main{{max-width:680px;margin:auto;padding:16px}}h1{{font-size:20px;margin:0 0 4px}}h2{{font-size:17px;margin:24px 0 8px}}
-.c{{display:block;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin:8px 0;color:inherit;text-decoration:none}}
-.c.alvo{{background:var(--al)}}.t{{font-size:13px;color:var(--mu)}}.p{{font-size:18px;margin:2px 0}}.m{{font-size:13px;color:var(--mu)}}
-.ok{{color:var(--ok)}}.wa{{color:var(--wa)}}table{{border-collapse:collapse;width:100%;background:var(--card)}}
-td,th{{border:1px solid var(--bd);padding:6px 8px;text-align:right}}td:first-child,th:first-child{{text-align:left}}
+:root{{--bg:#f6f6f4;--card:#fff;--tx:#1d1d1b;--mu:#6b6b66;--bd:#e3e3de;--ok:#1a7f37;--wa:#9a6700;--al:#e3f6e8;--alb:#1a7f37;--ac:#2456c9}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#141413;--card:#1f1f1d;--tx:#ececea;--mu:#a3a39d;--bd:#33332f;--ok:#4ac26b;--wa:#d4a72c;--al:#16301d;--alb:#4ac26b;--ac:#7aa2ff}}}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,sans-serif}}
+main{{max-width:680px;margin:auto;padding:16px}}h1{{font-size:20px;margin:0 0 4px}}h2{{font-size:18px;margin:28px 0 10px}}
+.mu{{color:var(--mu);font-size:13px}}
+.kpis{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:6px}}
+.k{{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px}}
+.k span,.v span{{display:block;font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.03em}}
+.k b{{display:block;font-size:16px;font-variant-numeric:tabular-nums}}.k small,.v small{{display:block;font-size:11px;color:var(--mu)}}
+.c{{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin:10px 0}}
+.c.alvo{{background:var(--al);border-color:var(--alb)}}.h{{display:flex;justify-content:space-between;align-items:center}}
+.h em{{font-style:normal;font-size:11px;font-weight:700;color:var(--alb);border:1px solid var(--alb);border-radius:6px;padding:1px 6px}}
+.t{{font-size:13px;color:var(--mu);margin:2px 0 8px}}.g{{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}}
+.v b{{display:block;font-size:15px;font-variant-numeric:tabular-nums}}.o{{font-size:13px;color:var(--mu);margin-top:8px}}
+code{{font-size:12px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;padding:0 4px}}
+.ok{{color:var(--ok)}}.wa{{color:var(--wa)}}
+.b{{display:block;text-align:center;margin-top:10px;padding:9px;border-radius:8px;background:var(--ac);color:#fff;text-decoration:none;font-weight:600}}
+details{{margin-top:6px}}summary{{cursor:pointer;color:var(--mu);font-size:13px;padding:6px 0}}
+table{{border-collapse:collapse;width:100%;background:var(--card);font-size:13px;font-variant-numeric:tabular-nums}}
+td,th{{border:1px solid var(--bd);padding:6px;text-align:right}}td:first-child,th:first-child{{text-align:left}}
 </style></head><body><main>
-<h1>🎮 Preços PS5 e GTA 6</h1><div class="m">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(CFG["ps5_preco_alvo"])} · destaque verde = no alvo</div>
-{bloco("ps5", "PS5 — console")}{bloco("gta6", "GTA 6 — PS5")}
-<h2>Menor preço na loja por dia</h2><table><tr><th>Dia</th><th>PS5</th><th>GTA 6</th></tr>{tab}</table>
-<p class="m">✅ = lido na página da loja · ⚠️ = preço informado por canal do Telegram. Confira no carrinho antes de pagar.</p>
+<h1>🎮 Preços PS5 e GTA 6</h1>
+<div class="mu">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(alvo)} no crédito parcelado ou no Pix</div>
+{secao("ps5", "PS5 — console")}{secao("gta6", "GTA 6 — PS5")}
+<p class="mu">Crédito = preço no cartão · Crédito parcelado = no cartão em {CFG["parcelas_minimas"]}x ou mais sem juros · ✅ lido na página da loja · ⚠️ preço informado por canal do Telegram. Confira no carrinho antes de pagar.</p>
 </main></body></html>"""
     os.makedirs(os.path.join(RAIZ, "site"), exist_ok=True)
     open(os.path.join(RAIZ, "site", "index.html"), "w", encoding="utf-8").write(pagina)
@@ -443,9 +546,10 @@ def main():
     estado = carregar_estado()
     ofertas = coletar_kabum() + coletar_vtex() + coletar_telegram()
     novas = registrar(ofertas, estado)
-    n_alertas = alertas_ps5(ofertas, estado)
+    n_alertas = alertas(ofertas, estado)
+    atualizar_diario(ofertas, estado)
     resumo = resumo_diario(ofertas, estado, forcar_resumo)
-    gerar_painel(ofertas)
+    gerar_painel(ofertas, estado)
     estado["ultima_execucao"] = AGORA.astimezone(SP).isoformat(timespec="minutes")
     json.dump(estado, open(ESTADO, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     log(f"ofertas={len(ofertas)} gravadas={len(novas)} alertas={n_alertas} resumo={resumo}")

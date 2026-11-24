@@ -40,6 +40,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          PAGINA_URL: https://leo-barbieri.github.io/monitor-precos/
         run: python monitor.py ${{ inputs.resumo && '--resumo' || '' }}
       - name: Salvar historico
         run: |

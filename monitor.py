@@ -2,7 +2,7 @@
 
 Fontes: busca da KaBuM (dados estruturados) + prévia pública de canais do Telegram.
 Saídas: data/historico.csv (só grava quando algo muda), alerta no Telegram quando o
-PS5 fica <= preço-alvo, resumo diário com o menor preço de cada produto.
+PS5 fica <= preço-alvo (parcelado, crédito ou Pix), resumo diário com o menor preço de cada produto.
 Opcional: espelha o histórico numa tabela do Supabase (SUPABASE_URL / SUPABASE_KEY).
 """
 import csv
@@ -387,24 +387,24 @@ def linha_msg(o):
 
 
 def alertas(ofertas, estado):
-    """(a) PS5 no preço-alvo (parcelado ou Pix); (b) novo menor preço em cada categoria."""
+    """(a) PS5 no preço-alvo (parcelado, crédito ou Pix); (b) novo menor preço em cada categoria."""
     alvo, msgs = CFG["ps5_preco_alvo"], []
     lim_post = AGORA - timedelta(hours=CFG["horas_max_post_telegram"])
     recentes = [o for o in ofertas if not (o.get("dt_post") and o["dt_post"] < lim_post)]
 
-    # (a) preço-alvo — foco no parcelado, mas Pix também vale
+    # (a) preço-alvo — vale para parcelado (foco), crédito e Pix
     for o in recentes:
         if o["produto"] != "ps5" or not confiavel(o):
             continue
         v = valores(o)
-        if not ((v["parcelado"] and v["parcelado"] <= alvo) or (v["pix"] and v["pix"] <= alvo)):
+        bateu = [nome for cat, nome in CATS if 0 < v[cat] <= alvo]
+        if not bateu:
             continue
         chave = f"alvo|{o.get('post') or o['link']}|{assinatura(o)}"
         if chave in estado["alertados"]:
             continue
         estado["alertados"].append(chave)
-        como = "no parcelado" if v["parcelado"] and v["parcelado"] <= alvo else "só no Pix"
-        msgs.append(f"🚨 <b>PS5 ≤ {br(alvo)} ({como})</b>\n" + linha_msg(o))
+        msgs.append(f"🚨 <b>PS5 ≤ {br(alvo)}</b> — {', '.join(bateu)}\n" + linha_msg(o))
 
     # (b) recordes por categoria (só PS5; GTA 6 fica no painel e no resumo)
     rec = estado.setdefault("recordes", {})
@@ -478,7 +478,7 @@ def gerar_painel(ofertas, estado):
 
     def card(o, prod):
         v = valores(o)
-        no_alvo = prod == "ps5" and any(0 < v[c] <= alvo for c in ("parcelado", "pix"))
+        no_alvo = prod == "ps5" and any(0 < v[c] <= alvo for c, _ in CATS)
         cel = []
         for cat, nome in CATS:
             sub = e(o["parcelas"]) if cat == "parcelado" and v[cat] else ("à vista" if cat == "pix" and v[cat] else "")
@@ -538,7 +538,7 @@ table{{border-collapse:collapse;width:100%;background:var(--card);font-size:13px
 td,th{{border:1px solid var(--bd);padding:6px;text-align:right}}td:first-child,th:first-child{{text-align:left}}
 </style></head><body><main>
 <h1>🎮 Preços PS5 e GTA 6</h1>
-<div class="mu">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(alvo)} no crédito parcelado ou no Pix</div>
+<div class="mu">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(alvo)} no crédito parcelado, no crédito ou no Pix</div>
 {secao("ps5", "PS5 — console")}{secao("gta6", "GTA 6 — PS5")}
 <p class="mu">Crédito = preço no cartão · Crédito parcelado = no cartão em {CFG["parcelas_minimas"]}x ou mais sem juros · ✅ lido na página da loja · ⚠️ preço informado por canal do Telegram. Confira no carrinho antes de pagar.</p>
 </main></body></html>"""

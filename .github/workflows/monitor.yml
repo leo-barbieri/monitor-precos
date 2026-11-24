@@ -3,9 +3,10 @@ name: Monitor de precos
 on:
   schedule:
     # Horários em UTC (São Paulo = UTC-3).
-    - cron: "*/10 * 26-30 11 *"   # Black Friday → Cyber Monday: a cada 10 min
+    - cron: "*/10 * 24-30 11 *"   # 24/11 → Cyber Monday (30/11): a cada 10 min
     - cron: "*/10 0-3 1 12 *"     # até 30/11 23h50 em São Paulo
-    - cron: "17 */2 * * *"        # resto do ano: a cada 2 h
+    - cron: "17 */2 * 1-10,12 *"  # resto do ano: a cada 2 h
+    - cron: "17 */2 1-23 11 *"
   workflow_dispatch:
     inputs:
       resumo:

@@ -7,12 +7,12 @@ Roda sozinho no GitHub Actions, **sem IA e sem tokens**. A cada execução ele:
 3. Grava em `data/historico.csv` **apenas o que mudou** (preço novo, oferta nova, saiu da loja).
 4. Separa cada oferta em **3 preços**: **Parcelado** (cartão em 3x ou mais sem juros), **Crédito** (cartão, qualquer número de parcelas) e **Pix**.
 5. Manda **alerta no Telegram** quando:
-   - um PS5 fica **≤ R$ 3.500** no parcelado (foco) ou no Pix;
+   - um PS5 fica **≤ R$ 3.500** no crédito parcelado (foco), no crédito ou no Pix;
    - aparece um **novo menor preço do PS5** em qualquer uma das 3 categorias (queda mínima de R$ 1; uma mensagem por oferta).
 6. Manda um **resumo diário às 9h** com o menor preço de cada categoria (PS5 e GTA 6).
 7. Atualiza a **página de preços atuais** (GitHub Pages), com os 3 preços, cupom, vendedor e botão para a oferta de cada loja, e o menor preço por dia.
 
-Frequência: a cada **10 min de 26 a 30/11** e a cada **2 h** no resto do ano. O GitHub pode atrasar alguns minutos em horário de pico.
+Frequência: a cada **10 min de 24 a 30/11** e a cada **2 h** no resto do ano. O GitHub pode atrasar alguns minutos em horário de pico.
 
 Os parâmetros (preço-alvo, canais, buscas e vendedores confiáveis) ficam em `config.json`.
 

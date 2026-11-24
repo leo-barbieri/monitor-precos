@@ -357,9 +357,14 @@ def enviar_telegram(texto):
     if not (token and chat):
         log("[sem TELEGRAM_BOT_TOKEN/CHAT_ID] mensagem:\n" + texto)
         return
-    dados = urllib.parse.urlencode({"chat_id": chat, "text": texto, "parse_mode": "HTML",
-                                    "disable_web_page_preview": "true"}).encode()
-    urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=dados, timeout=20)
+    # TELEGRAM_CHAT_ID aceita vários destinos separados por vírgula (ex.: "123456789,@meucanal")
+    for destino in [c.strip() for c in chat.split(",") if c.strip()]:
+        dados = urllib.parse.urlencode({"chat_id": destino, "text": texto, "parse_mode": "HTML",
+                                        "disable_web_page_preview": "true"}).encode()
+        try:
+            urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=dados, timeout=20)
+        except Exception as e:  # um destino com problema não impede os outros
+            log(f"Telegram falhou para um destino: {e}")
 
 
 def selo(o):

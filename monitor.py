@@ -221,7 +221,7 @@ def coletar_telegram():
                 if not tipo:
                     continue
                 pix, parcelado, n_parc = extrair_precos(texto)
-                faixa = (1500, 8000) if tipo == "ps5" else (100, 1000)  # fora disso é combo/erro
+                faixa = (CFG["ps5_piso_post"], 8000) if tipo == "ps5" else (100, 1000)  # fora disso é combo/erro
                 if not (faixa[0] <= max(pix, parcelado) <= faixa[1]):
                     continue
                 links = [l for l in re.findall(r'href="(https?://[^"]+)"', bruto) if "t.me/" not in l]

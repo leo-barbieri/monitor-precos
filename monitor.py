@@ -100,6 +100,42 @@ def coletar_kabum():
     return ofertas
 
 
+# ---------------------------------------------------------------- lojas VTEX (Americanas)
+def coletar_vtex():
+    ofertas, vistos = [], set()
+    for loja, cfg in CFG.get("lojas_vtex", {}).items():
+        for produto, termos in cfg["buscas"].items():
+            for termo in termos:
+                url = (f"https://{cfg['host']}/api/catalog_system/pub/products/search"
+                       f"?ft={urllib.parse.quote(termo)}&_from=0&_to=49")
+                try:
+                    itens = json.loads(baixar(url))
+                except Exception as e:
+                    log(f"{loja} falhou em {termo}: {e}")
+                    continue
+                for p in itens:
+                    if p["productId"] in vistos or classificar(p["productName"]) != produto:
+                        continue
+                    for vend in p["items"][0]["sellers"]:
+                        o = vend["commertialOffer"]
+                        if not o.get("AvailableQuantity") or not o.get("Price"):
+                            continue
+                        sem_juros = [i for i in o.get("Installments", []) if i.get("InterestRate", 0) == 0
+                                     and i["PaymentSystemName"] in ("Visa", "Mastercard")]
+                        melhor = max(sem_juros, key=lambda i: i["NumberOfInstallments"], default=None)
+                        pix = next((i["Value"] for i in o.get("Installments", []) if i["PaymentSystemName"] == "Pix"), 0)
+                        vistos.add(p["productId"])
+                        ofertas.append({
+                            "produto": produto, "fonte": loja, "loja": loja, "vendedor": vend["sellerName"].title(),
+                            "titulo": p["productName"][:120], "preco_parcelado": float(o["Price"]),
+                            "parcelas": f"{melhor['NumberOfInstallments']}x de {br(melhor['Value'])}" if melhor else "",
+                            "n_parcelas": melhor["NumberOfInstallments"] if melhor else 1,
+                            "preco_pix": float(pix), "cupom": "", "verificado": "sim", "link": p["link"],
+                        })
+                        break
+    return ofertas
+
+
 # ---------------------------------------------------------------- Telegram
 DINHEIRO = r"R\$\s*(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)"
 
@@ -240,9 +276,9 @@ def registrar(ofertas, estado):
     # ofertas da loja que sumiram da busca
     links_atuais = {o["link"] for o in ofertas if o["verificado"] == "sim"}
     for chave, sig in list(estado["ultimo"].items()):
-        if "kabum.com.br" in chave and chave not in links_atuais and sig != "saiu":
+        if not chave.startswith("https://t.me/") and chave not in links_atuais and sig != "saiu":
             estado["ultimo"][chave] = "saiu"
-            novas.append({**{c: "" for c in COLUNAS}, "checado_em": agora_sp, "fonte": "KaBuM",
+            novas.append({**{c: "" for c in COLUNAS}, "checado_em": agora_sp, "fonte": "loja",
                           "verificado": "saiu da loja", "link": chave})
     if novas:
         existe = os.path.exists(HIST)
@@ -346,13 +382,70 @@ def resumo_diario(ofertas, estado, forcar=False):
     return True
 
 
+# ---------------------------------------------------------------- painel (página de preços atuais)
+def gerar_painel(ofertas):
+    """site/index.html: preços desta checagem + menor preço por dia (do histórico)."""
+    agora = AGORA.astimezone(SP)
+    def bloco(prod, nome):
+        cands = [o for o in ofertas if o["produto"] == prod and confiavel(o)]
+        cands.sort(key=lambda o: o["preco_parcelado"] or o["preco_pix"] or 9e9)
+        if not cands:
+            return f"<h2>{nome}</h2><p class=m>Nenhuma oferta confiável agora.</p>"
+        linhas = []
+        for o in cands[:12]:
+            selo = ('<span class="ok">✅ loja</span>' if o["verificado"] == "sim"
+                    else f'<span class="wa">⚠️ {html.escape(o["fonte"].replace("Telegram: ", "TG "))} {o["hora_post"]}</span>')
+            alvo = " alvo" if prod == "ps5" and 0 < (o["preco_parcelado"] or o["preco_pix"]) <= CFG["ps5_preco_alvo"] else ""
+            linhas.append(
+                f'<a class="c{alvo}" href="{html.escape(o["link"])}" target="_blank" rel="noopener">'
+                f'<div class="t">{html.escape(o["titulo"])}</div>'
+                f'<div class="p"><b>{br(o["preco_parcelado"]) if o["preco_parcelado"] else "—"}</b> '
+                f'<small>{html.escape(o["parcelas"])}</small></div>'
+                f'<div class="m">Pix {br(o["preco_pix"])} · {html.escape(o["loja"])}'
+                f'{" (" + html.escape(o["vendedor"]) + ")" if o["vendedor"] and o["vendedor"].lower() != o["loja"].lower() else ""}'
+                f'{" · cupom " + html.escape(o["cupom"]) if o["cupom"] else ""} · {selo}</div></a>')
+        return f"<h2>{nome}</h2>" + "".join(linhas)
+
+    # menor preço verificado por dia (últimos 14 dias)
+    hist = {}
+    if os.path.exists(HIST):
+        for r in csv.DictReader(open(HIST, encoding="utf-8")):
+            if r["verificado"] != "sim" or not r["preco_parcelado"]:
+                continue
+            k = (r["produto"], r["checado_em"][:10])
+            hist[k] = min(hist.get(k, 9e9), float(r["preco_parcelado"]))
+    dias = sorted({d for _, d in hist}, reverse=True)[:14]
+    tab = "".join(f"<tr><td>{d[8:10]}/{d[5:7]}</td><td>{br(hist.get(('ps5', d), 0))}</td>"
+                  f"<td>{br(hist.get(('gta6', d), 0))}</td></tr>" for d in dias)
+    pagina = f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300">
+<title>Preços PS5 e GTA 6</title><style>
+:root{{--bg:#f6f6f4;--card:#fff;--tx:#1d1d1b;--mu:#6b6b66;--bd:#e3e3de;--ok:#1a7f37;--wa:#9a6700;--al:#d4f5dc}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#141413;--card:#1f1f1d;--tx:#ececea;--mu:#a3a39d;--bd:#33332f;--ok:#4ac26b;--wa:#d4a72c;--al:#173d22}}}}
+body{{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,sans-serif}}
+main{{max-width:680px;margin:auto;padding:16px}}h1{{font-size:20px;margin:0 0 4px}}h2{{font-size:17px;margin:24px 0 8px}}
+.c{{display:block;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin:8px 0;color:inherit;text-decoration:none}}
+.c.alvo{{background:var(--al)}}.t{{font-size:13px;color:var(--mu)}}.p{{font-size:18px;margin:2px 0}}.m{{font-size:13px;color:var(--mu)}}
+.ok{{color:var(--ok)}}.wa{{color:var(--wa)}}table{{border-collapse:collapse;width:100%;background:var(--card)}}
+td,th{{border:1px solid var(--bd);padding:6px 8px;text-align:right}}td:first-child,th:first-child{{text-align:left}}
+</style></head><body><main>
+<h1>🎮 Preços PS5 e GTA 6</h1><div class="m">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(CFG["ps5_preco_alvo"])} · destaque verde = no alvo</div>
+{bloco("ps5", "PS5 — console")}{bloco("gta6", "GTA 6 — PS5")}
+<h2>Menor preço na loja por dia</h2><table><tr><th>Dia</th><th>PS5</th><th>GTA 6</th></tr>{tab}</table>
+<p class="m">✅ = lido na página da loja · ⚠️ = preço informado por canal do Telegram. Confira no carrinho antes de pagar.</p>
+</main></body></html>"""
+    os.makedirs(os.path.join(RAIZ, "site"), exist_ok=True)
+    open(os.path.join(RAIZ, "site", "index.html"), "w", encoding="utf-8").write(pagina)
+
+
 def main():
     forcar_resumo = "--resumo" in sys.argv
     estado = carregar_estado()
-    ofertas = coletar_kabum() + coletar_telegram()
+    ofertas = coletar_kabum() + coletar_vtex() + coletar_telegram()
     novas = registrar(ofertas, estado)
     n_alertas = alertas_ps5(ofertas, estado)
     resumo = resumo_diario(ofertas, estado, forcar_resumo)
+    gerar_painel(ofertas)
     estado["ultima_execucao"] = AGORA.astimezone(SP).isoformat(timespec="minutes")
     json.dump(estado, open(ESTADO, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     log(f"ofertas={len(ofertas)} gravadas={len(novas)} alertas={n_alertas} resumo={resumo}")

@@ -2,11 +2,12 @@
 
 Roda sozinho no GitHub Actions, **sem IA e sem tokens**. A cada execução ele:
 
-1. Lê a busca da **KaBuM** (preço parcelado, Pix, parcelas e vendedor, incluindo produtos Magalu vendidos lá).
+1. Lê direto nas lojas **KaBuM** e **Americanas** (preço parcelado, Pix, parcelas e vendedor; as duas também listam produtos vendidos pela Magalu).
 2. Lê a prévia pública de **7 canais de promoção do Telegram**. Ignora posts riscados ou com cupom esgotado, e só alerta posts com até 6 h.
 3. Grava em `data/historico.csv` **apenas o que mudou** (preço novo, oferta nova, saiu da loja).
 4. Manda **alerta no Telegram** quando um PS5 fica **≤ R$ 3.500** (no mínimo 3x quando é da loja).
 5. Manda um **resumo diário às 9h** com o PS5 mais barato (top 3) e o GTA 6 (top 2).
+6. Atualiza a **página de preços atuais** (GitHub Pages), que você pode abrir a qualquer hora no celular.
 
 Frequência: a cada **10 min de 26 a 30/11** e a cada **2 h** no resto do ano. O GitHub pode atrasar alguns minutos em horário de pico.
 
@@ -28,7 +29,10 @@ No repositório: **Settings → Secrets and variables → Actions → New reposi
 | `TELEGRAM_CHAT_ID` | seu chat_id |
 | `SUPABASE_URL` / `SUPABASE_KEY` | *opcional*: só se usar o Supabase (veja abaixo) |
 
-### 3. Testar
+### 3. Página de preços (GitHub Pages)
+**Settings → Pages → Source: GitHub Actions**. O endereço fica `https://<usuario>.github.io/<repositorio>/`. No plano gratuito, só funciona com repositório público.
+
+### 4. Testar
 **Actions → Monitor de precos → Run workflow**, marque *"Enviar o resumo agora"*. O resumo deve chegar no Telegram em ~1 min.
 
 ## Supabase (opcional)
@@ -37,6 +41,6 @@ O histórico já fica no CSV do repositório. Se quiser um banco para consultar 
 2. Cadastre `SUPABASE_URL` e `SUPABASE_KEY` (chave **service_role**) nos secrets.
 
 ## Limites conhecidos
-- **Magalu e Casas Bahia** bloqueiam robôs (erro 403). As ofertas delas chegam pelos canais do Telegram.
+- **Leitura direta bloqueada** (anti-robô): Mercado Livre, Amazon, Shopee, AliExpress, Magalu, Casas Bahia, Carrefour, Pichau e Terabyte. As ofertas dessas lojas chegam pelos canais do Telegram.
 - Ofertas do **Telegram** vêm marcadas "⚠️ não verificado": o preço é o que o post informou.
 - Repositório **privado** tem 2.000 min/mês grátis no Actions. Esta agenda usa cerca de 1.100 min em novembro e cerca de 400 min nos outros meses. Repositório público não tem limite.

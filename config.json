@@ -3,18 +3,67 @@
   "parcelas_minimas": 3,
   "horas_max_post_telegram": 6,
   "hora_resumo_diario": 9,
-  "vendedores_confiaveis": ["KaBuM!", "Magalu", "Sony", "Fast Shop", "Carrefour", "Casas Bahia", "Amazon"],
+  "vendedores_confiaveis": [
+    "KaBuM!",
+    "Magalu",
+    "Sony",
+    "Fast Shop",
+    "Carrefour",
+    "Casas Bahia",
+    "Amazon",
+    "Americanas",
+    "Magazine Luiza"
+  ],
   "kabum_buscas": {
-    "ps5": ["playstation-5-slim-digital", "console-playstation-5"],
-    "gta6": ["gta-vi-ps5"]
+    "ps5": [
+      "playstation-5-slim-digital",
+      "console-playstation-5"
+    ],
+    "gta6": [
+      "gta-vi-ps5"
+    ]
   },
   "canais_telegram": {
-    "urubupromo": ["ps5", "gta"],
-    "xetdaspromocoes": ["ps5", "gta"],
-    "TJGOFERTASs": ["ps5", "gta"],
-    "ofertasplaystationbr": ["ps5", "gta"],
-    "meups4": ["ps5", "gta"],
-    "jogobarato": ["ps5", "gta"],
-    "achadosdotb": ["playstation"]
+    "urubupromo": [
+      "ps5",
+      "gta"
+    ],
+    "xetdaspromocoes": [
+      "ps5",
+      "gta"
+    ],
+    "TJGOFERTASs": [
+      "ps5",
+      "gta"
+    ],
+    "ofertasplaystationbr": [
+      "ps5",
+      "gta"
+    ],
+    "meups4": [
+      "ps5",
+      "gta"
+    ],
+    "jogobarato": [
+      "ps5",
+      "gta"
+    ],
+    "achadosdotb": [
+      "playstation"
+    ]
+  },
+  "lojas_vtex": {
+    "Americanas": {
+      "host": "www.americanas.com.br",
+      "buscas": {
+        "ps5": [
+          "console playstation 5"
+        ],
+        "gta6": [
+          "grand theft auto vi ps5",
+          "gta vi ps5"
+        ]
+      }
+    }
   }
 }

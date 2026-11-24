@@ -26,30 +26,52 @@
   "canais_telegram": {
     "urubupromo": [
       "ps5",
-      "gta"
+      "playstation",
+      "console",
+      "gta",
+      "grand theft"
     ],
     "xetdaspromocoes": [
       "ps5",
-      "gta"
+      "playstation",
+      "console",
+      "gta",
+      "grand theft"
     ],
     "TJGOFERTASs": [
       "ps5",
-      "gta"
+      "playstation",
+      "console",
+      "gta",
+      "grand theft"
     ],
     "ofertasplaystationbr": [
       "ps5",
-      "gta"
+      "playstation",
+      "console",
+      "gta",
+      "grand theft"
     ],
     "meups4": [
       "ps5",
-      "gta"
+      "playstation",
+      "console",
+      "gta",
+      "grand theft"
     ],
     "jogobarato": [
       "ps5",
-      "gta"
+      "playstation",
+      "console",
+      "gta",
+      "grand theft"
     ],
     "achadosdotb": [
-      "playstation"
+      "ps5",
+      "playstation",
+      "console",
+      "gta",
+      "grand theft"
     ]
   },
   "lojas_vtex": {

@@ -1,0 +1,20 @@
+{
+  "ps5_preco_alvo": 3500,
+  "parcelas_minimas": 3,
+  "horas_max_post_telegram": 6,
+  "hora_resumo_diario": 9,
+  "vendedores_confiaveis": ["KaBuM!", "Magalu", "Sony", "Fast Shop", "Carrefour", "Casas Bahia", "Amazon"],
+  "kabum_buscas": {
+    "ps5": ["playstation-5-slim-digital", "console-playstation-5"],
+    "gta6": ["gta-vi-ps5"]
+  },
+  "canais_telegram": {
+    "urubupromo": ["ps5", "gta"],
+    "xetdaspromocoes": ["ps5", "gta"],
+    "TJGOFERTASs": ["ps5", "gta"],
+    "ofertasplaystationbr": ["ps5", "gta"],
+    "meups4": ["ps5", "gta"],
+    "jogobarato": ["ps5", "gta"],
+    "achadosdotb": ["playstation"]
+  }
+}

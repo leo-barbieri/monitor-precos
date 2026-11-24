@@ -2,7 +2,7 @@
 
 Roda sozinho no GitHub Actions, **sem IA e sem tokens**. A cada execução ele:
 
-1. Lê direto nas lojas **KaBuM** e **Americanas** (preço parcelado, Pix, parcelas e vendedor; as duas também listam produtos vendidos pela Magalu).
+1. Lê direto nas lojas **KaBuM** e **Americanas** (preço parcelado, Pix, parcelas e vendedor; as duas também listam produtos vendidos pela Magalu), e o comparador **Zoom**, que traz a melhor oferta de cada produto entre lojas como Amazon, Magalu e Webcontinental.
 2. Lê a prévia pública de **7 canais de promoção do Telegram**. Ignora posts riscados ou com cupom esgotado, e só alerta posts com até 6 h.
 3. Grava em `data/historico.csv` **apenas o que mudou** (preço novo, oferta nova, saiu da loja).
 4. Separa cada oferta em **3 preços**: **Parcelado** (cartão em 3x ou mais sem juros), **Crédito** (cartão, qualquer número de parcelas) e **Pix**.
@@ -44,6 +44,7 @@ O histórico já fica no CSV do repositório. Se quiser um banco para consultar 
 2. Cadastre `SUPABASE_URL` e `SUPABASE_KEY` (chave **service_role**) nos secrets.
 
 ## Limites conhecidos
-- **Leitura direta bloqueada** (anti-robô): Mercado Livre, Amazon, Shopee, AliExpress, Magalu, Casas Bahia, Carrefour, Pichau e Terabyte. As ofertas dessas lojas chegam pelos canais do Telegram.
+- **Leitura direta bloqueada** (anti-robô): Mercado Livre, Amazon, Shopee, AliExpress, Magalu, Casas Bahia, Carrefour, Pichau, Terabyte e Google Shopping (captcha). Amazon e Magalu entram pelo Zoom quando têm o menor preço de um produto; as demais lojas chegam pelos canais do Telegram.
+- O **Zoom** mostra só a melhor oferta de cada produto, não a lista completa de lojas. O botão leva à página do Zoom, e de lá "Ir à loja" abre a oferta.
 - Ofertas do **Telegram** vêm marcadas "⚠️ não verificado": o preço é o que o post informou.
 - Repositório **privado** tem 2.000 min/mês grátis no Actions. Esta agenda usa cerca de 1.100 min em novembro e cerca de 400 min nos outros meses. Repositório público não tem limite.

@@ -139,6 +139,43 @@ def coletar_vtex():
     return ofertas
 
 
+# ---------------------------------------------------------------- Zoom (comparador: melhor oferta entre lojas)
+def coletar_zoom():
+    ofertas, vistos = [], set()
+    limpa = lambda x: html.unescape(re.sub(r"<[^>]+>", "", x)).strip() if x else ""
+    for produto, termos in CFG.get("zoom_buscas", {}).items():
+        for termo in termos:
+            try:
+                h = baixar(f"https://www.zoom.com.br/search?q={urllib.parse.quote(termo)}")
+            except Exception as e:
+                log(f"Zoom falhou em {termo}: {e}")
+                continue
+            for c in h.split('class="Hits_ProductCard')[1:]:
+                pega = lambda pat: limpa((re.search(pat, c, re.S) or [None, None])[1])
+                nome = pega(r'product-card::name"[^>]*>(.*?)</h2>')
+                href = (re.search(r'href="([^"]+)"', c) or [None, ""])[1].split("?")[0]
+                loja = pega(r'BestOfferMerchant[^>]*>(.*?)</div>').replace("Via ", "")
+                if not href.startswith("/") or not loja or href in vistos:  # anúncios ("lead") ficam de fora
+                    continue
+                if classificar(nome) != produto or re.search(r"pr[ée]-venda", nome, re.I):
+                    continue
+                vistos.add(href)
+                vista = _valor(re.sub(r"[^\d.,]", "", pega(r'product-card::price"[^>]*>(.*?)</div>')))
+                parc = re.search(r"(\d{1,2})x de R\$\s*([\d.,]+)", pega(r'class="Installment[^"]*"[^>]*>(.*?)</div>'))
+                n = int(parc.group(1)) if parc else 0
+                total = round(n * _valor(parc.group(2)), 2) if parc else 0.0
+                if not parc and loja.lower() == "amazon":  # Amazon: preço único vale no cartão e no Pix
+                    total = vista
+                ofertas.append({
+                    "produto": produto, "fonte": "Zoom", "loja": loja, "vendedor": "",
+                    "titulo": nome[:120], "preco_parcelado": total, "n_parcelas": n,
+                    "parcelas": f"{n}x de {br(_valor(parc.group(2)))}" if parc else "",
+                    "preco_pix": vista, "cupom": "", "verificado": "zoom",
+                    "link": "https://www.zoom.com.br" + href,
+                })
+    return ofertas
+
+
 # ---------------------------------------------------------------- Telegram
 DINHEIRO = r"R\$\s*(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)"
 
@@ -277,7 +314,7 @@ def registrar(ofertas, estado):
             linha["fonte"] = f"{o['fonte']} (post {o['hora_post']})"
         novas.append(linha)
     # ofertas da loja que sumiram da busca
-    links_atuais = {o["link"] for o in ofertas if o["verificado"] == "sim"}
+    links_atuais = {o["link"] for o in ofertas if not o.get("post")}
     for chave, sig in list(estado["ultimo"].items()):
         if not chave.startswith("https://t.me/") and chave not in links_atuais and sig != "saiu":
             estado["ultimo"][chave] = "saiu"
@@ -368,6 +405,8 @@ def enviar_telegram(texto):
 
 
 def selo(o):
+    if o["verificado"] == "zoom":
+        return "🔎 menor preço no Zoom (toque em “Ir à loja”)"
     return "✅ verificado na loja" if o["verificado"] == "sim" else f"⚠️ não verificado · {o['fonte']} {o['hora_post']}"
 
 
@@ -489,6 +528,7 @@ def gerar_painel(ofertas, estado):
         if not mesmo_vendedor(o):
             obs.append(f"Vendido por {e(o['vendedor'])}")
         obs.append('<span class="ok">✅ lido na loja</span>' if o["verificado"] == "sim"
+                   else '<span class="zo">🔎 via Zoom: toque em “Ir à loja”</span>' if o["verificado"] == "zoom"
                    else f'<span class="wa">⚠️ post de {e(o["fonte"].replace("Telegram: ", ""))} às {o["hora_post"]}</span>')
         return (f'<article class="c{" alvo" if no_alvo else ""}"><div class="h"><b>{e(o["loja"])}</b>'
                 f'{"<em>NO ALVO</em>" if no_alvo else ""}</div><div class="t">{e(o["titulo"])}</div>'
@@ -531,7 +571,7 @@ main{{max-width:680px;margin:auto;padding:16px}}h1{{font-size:20px;margin:0 0 4p
 .t{{font-size:13px;color:var(--mu);margin:2px 0 8px}}.g{{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}}
 .v b{{display:block;font-size:15px;font-variant-numeric:tabular-nums}}.o{{font-size:13px;color:var(--mu);margin-top:8px}}
 code{{font-size:12px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;padding:0 4px}}
-.ok{{color:var(--ok)}}.wa{{color:var(--wa)}}
+.ok{{color:var(--ok)}}.wa{{color:var(--wa)}}.zo{{color:var(--ac)}}
 .b{{display:block;text-align:center;margin-top:10px;padding:9px;border-radius:8px;background:var(--ac);color:#fff;text-decoration:none;font-weight:600}}
 details{{margin-top:6px}}summary{{cursor:pointer;color:var(--mu);font-size:13px;padding:6px 0}}
 table{{border-collapse:collapse;width:100%;background:var(--card);font-size:13px;font-variant-numeric:tabular-nums}}
@@ -540,7 +580,7 @@ td,th{{border:1px solid var(--bd);padding:6px;text-align:right}}td:first-child,t
 <h1>🎮 Preços PS5 e GTA 6</h1>
 <div class="mu">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(alvo)} no crédito parcelado, no crédito ou no Pix</div>
 {secao("ps5", "PS5 — console")}{secao("gta6", "GTA 6 — PS5")}
-<p class="mu">Crédito = preço no cartão · Crédito parcelado = no cartão em {CFG["parcelas_minimas"]}x ou mais sem juros · ✅ lido na página da loja · ⚠️ preço informado por canal do Telegram. Confira no carrinho antes de pagar.</p>
+<p class="mu">Crédito = preço no cartão · Crédito parcelado = no cartão em {CFG["parcelas_minimas"]}x ou mais sem juros · ✅ lido na página da loja · 🔎 menor preço do produto no comparador Zoom (Amazon, Magalu, Webcontinental…) · ⚠️ preço informado por canal do Telegram. Confira no carrinho antes de pagar.</p>
 </main></body></html>"""
     os.makedirs(os.path.join(RAIZ, "site"), exist_ok=True)
     open(os.path.join(RAIZ, "site", "index.html"), "w", encoding="utf-8").write(pagina)
@@ -549,7 +589,7 @@ td,th{{border:1px solid var(--bd);padding:6px;text-align:right}}td:first-child,t
 def main():
     forcar_resumo = "--resumo" in sys.argv
     estado = carregar_estado()
-    ofertas = coletar_kabum() + coletar_vtex() + coletar_telegram()
+    ofertas = coletar_kabum() + coletar_vtex() + coletar_zoom() + coletar_telegram()
     novas = registrar(ofertas, estado)
     n_alertas = alertas(ofertas, estado)
     atualizar_diario(ofertas, estado)

@@ -88,5 +88,14 @@
       }
     }
   },
-  "ps5_piso_post": 2500
+  "ps5_piso_post": 2500,
+  "zoom_buscas": {
+    "ps5": [
+      "console playstation 5",
+      "playstation 5 slim digital"
+    ],
+    "gta6": [
+      "gta vi ps5"
+    ]
+  }
 }

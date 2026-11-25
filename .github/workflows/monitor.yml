@@ -1,12 +1,20 @@
 name: Monitor de precos
 
+# Como roda:
+# - De 24/11 a 30/11 (Black Friday → Cyber Monday) cada execução agenda a próxima ~10 min
+#   depois (job "encadear"), sem depender do cron do GitHub, que atrasa ou pula execuções.
+# - Os crons abaixo ficam como rede de segurança: reiniciam a corrente se ela parar,
+#   e garantem a leitura a cada 2 h no resto do ano.
 on:
   schedule:
     # Horários em UTC (São Paulo = UTC-3).
-    - cron: "*/10 * 24-30 11 *"   # 24/11 → Cyber Monday (30/11): a cada 10 min
-    - cron: "*/10 0-3 1 12 *"     # até 30/11 23h50 em São Paulo
+    - cron: "*/30 * 24-30 11 *"   # reserva durante a Black Friday
+    - cron: "*/30 0-3 1 12 *"     # até 30/11 23h50 em São Paulo
     - cron: "17 */2 * 1-10,12 *"  # resto do ano: a cada 2 h
     - cron: "17 */2 1-23 11 *"
+  push:                           # mudança de código também dispara uma leitura
+    branches: [main]
+    paths: [".github/workflows/monitor.yml", "monitor.py", "config.json"]
   workflow_dispatch:
     inputs:
       resumo:
@@ -18,7 +26,9 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  actions: write
 
+# no máximo 1 execução rodando + 1 na fila (as extras são descartadas)
 concurrency:
   group: monitor
   cancel-in-progress: false
@@ -26,13 +36,10 @@ concurrency:
 jobs:
   coletar:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.pagina.outputs.page_url }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Coletar precos e alertar
@@ -52,10 +59,35 @@ jobs:
           git commit -m "dados: $(TZ=America/Sao_Paulo date '+%d/%m %H:%M')"
           git pull --rebase -q && git push
       - name: Preparar pagina de precos
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site
+
+  publicar:
+    needs: coletar
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.pagina.outputs.page_url }}
+    steps:
       - name: Publicar pagina (GitHub Pages)
         id: pagina
         uses: actions/deploy-pages@v4
-        continue-on-error: true   # se o Pages ainda nao foi ativado, o monitor segue funcionando
+
+  encadear:
+    needs: [coletar, publicar]
+    if: ${{ !cancelled() }}   # mesmo se uma etapa falhar, a corrente continua
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Agendar a proxima leitura (so na Black Friday)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          agora=$(TZ=America/Sao_Paulo date '+%m%d%H%M')
+          if [ "$agora" \< "11240000" ] || [ "$agora" \> "11302340" ]; then
+            echo "Fora da janela da Black Friday: sem encadeamento."; exit 0
+          fi
+          sleep 480
+          gh workflow run monitor.yml --repo "$GITHUB_REPOSITORY" --ref main

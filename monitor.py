@@ -627,7 +627,8 @@ def gerar_painel(ofertas, estado):
             cel.append(f'<div class="v"><span>{CURTO[cat]}</span><b>{br(v[cat]) if v[cat] else "—"}</b><small>{sub}</small></div>')
         obs = []
         if o["cupom"]:
-            obs.append(f'🎟 Cupom <code>{e(o["cupom"])}</code>')
+            obs.append(f'🎟 Cupom <button type="button" class="cp" data-c="{e(o["cupom"])}" '
+                       f'aria-label="Copiar cupom {e(o["cupom"])}">{e(o["cupom"])} <span>📋</span></button>')
         if not mesmo_vendedor(o):
             obs.append(f"Vendido por {e(o['vendedor'])}")
         obs.append('<span class="ok">✅ lido na loja</span>' if o["verificado"] == "sim"
@@ -677,6 +678,8 @@ main{{max-width:680px;margin:auto;padding:16px}}h1{{font-size:20px;margin:0 0 4p
 .t{{font-size:13px;color:var(--mu);margin:2px 0 8px}}.g{{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}}
 .v b{{display:block;font-size:15px;font-variant-numeric:tabular-nums}}.o{{font-size:13px;color:var(--mu);margin-top:8px}}
 code{{font-size:12px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;padding:0 4px}}
+.cp{{font:600 13px ui-monospace,monospace;color:var(--tx);background:var(--bg);border:1px dashed var(--ac);border-radius:6px;padding:3px 8px;cursor:pointer}}
+.cp.ok{{border-style:solid;border-color:var(--ok);color:var(--ok)}}
 .ok{{color:var(--ok)}}.wa{{color:var(--wa)}}.zo{{color:var(--ac)}}
 .atraso{{background:#fff4e5;color:#7a4b00;border:1px solid #f0c36d;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:14px}}
 .atraso a{{color:inherit;font-weight:600;margin-left:4px}}
@@ -694,7 +697,18 @@ td,th{{border:1px solid var(--bd);padding:6px;text-align:right}}td:first-child,t
 <div class="mu">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(alvo)} no crédito parcelado, no crédito ou no Pix</div>
 {secao("ps5", "PS5 — console")}{secao("gta6", "GTA 6 — PS5")}
 <p class="mu">Crédito = preço no cartão · Crédito parcelado = no cartão em {CFG["parcelas_minimas"]}x ou mais sem juros · ✅ lido na página da loja · 🔎 menor preço do produto no comparador Zoom (Amazon, Magalu, Webcontinental…) · ⚠️ preço informado por canal do Telegram. Confira no carrinho antes de pagar.</p>
-</main></body></html>"""
+</main>
+<script>
+document.addEventListener("click", async ev => {{
+  const b = ev.target.closest(".cp"); if (!b) return;
+  const c = b.dataset.c;
+  try {{ await navigator.clipboard.writeText(c); }}
+  catch (_) {{ const t = document.createElement("textarea"); t.value = c; document.body.appendChild(t);
+               t.select(); document.execCommand("copy"); t.remove(); }}
+  b.classList.add("ok"); b.innerHTML = "✓ Copiado";
+  setTimeout(() => {{ b.classList.remove("ok"); b.innerHTML = c + " <span>📋</span>"; }}, 1800);
+}});
+</script></body></html>"""
     os.makedirs(os.path.join(RAIZ, "site"), exist_ok=True)
     open(os.path.join(RAIZ, "site", "index.html"), "w", encoding="utf-8").write(pagina)
 

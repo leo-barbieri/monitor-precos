@@ -6,6 +6,7 @@ PS5 fica <= preço-alvo (parcelado, crédito ou Pix), resumo diário com o menor
 Opcional: espelha o histórico numa tabela do Supabase (SUPABASE_URL / SUPABASE_KEY).
 """
 import csv
+import hashlib
 import html
 import json
 import os
@@ -389,19 +390,114 @@ def melhores(ofertas, prod):
 
 
 # ---------------------------------------------------------------- Telegram bot
-def enviar_telegram(texto):
-    token, chat = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
-    if not (token and chat):
-        log("[sem TELEGRAM_BOT_TOKEN/CHAT_ID] mensagem:\n" + texto)
+def tg_api(metodo, **params):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return None
+    dados = urllib.parse.urlencode({k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
+                                    for k, v in params.items()}).encode()
+    with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/{metodo}", data=dados, timeout=30) as r:
+        return json.loads(r.read().decode()).get("result")
+
+
+def enviar_telegram(texto, botoes=None, destinos=None):
+    """botoes: lista de (rótulo, callback_data), um por linha, embaixo da mensagem."""
+    chat = os.getenv("TELEGRAM_CHAT_ID")
+    if not (os.getenv("TELEGRAM_BOT_TOKEN") and chat):
+        log("[sem TELEGRAM_BOT_TOKEN/CHAT_ID] mensagem:\n" + texto + (f"\n{botoes}" if botoes else ""))
         return
+    extra = {"reply_markup": {"inline_keyboard": [[{"text": r, "callback_data": d}] for r, d in botoes]}} if botoes else {}
     # TELEGRAM_CHAT_ID aceita vários destinos separados por vírgula (ex.: "123456789,@meucanal")
-    for destino in [c.strip() for c in chat.split(",") if c.strip()]:
-        dados = urllib.parse.urlencode({"chat_id": destino, "text": texto, "parse_mode": "HTML",
-                                        "disable_web_page_preview": "true"}).encode()
+    for destino in destinos or [c.strip() for c in chat.split(",") if c.strip()]:
         try:
-            urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=dados, timeout=20)
+            tg_api("sendMessage", chat_id=destino, text=texto, parse_mode="HTML",
+                   disable_web_page_preview="true", **extra)
         except Exception as e:  # um destino com problema não impede os outros
             log(f"Telegram falhou para um destino: {e}")
+
+
+# ---------------------------------------------------------------- descarte de ofertas (via bot)
+def chave_oferta(o):
+    return o.get("post") or o["link"]
+
+
+def id_oferta(o):
+    return hashlib.sha1(f"{chave_oferta(o)}|{assinatura(o)}".encode()).hexdigest()[:10]
+
+
+def desc_oferta(o):
+    v = valores(o)
+    preco = " / ".join(f"{n} {br(v[c])}" for c, n in CATS if v[c] and c != "credito") or "-"
+    return f"{NOME_PROD[o['produto']]} · {o['loja']} · {preco}"
+
+
+def lembrar_ids(ofertas, estado):
+    ids = estado.setdefault("ids", {})
+    agora = AGORA.isoformat(timespec="minutes")
+    for o in ofertas:
+        ids[id_oferta(o)] = {"chave": chave_oferta(o), "sig": assinatura(o), "tg": bool(o.get("post")),
+                             "desc": desc_oferta(o), "visto": agora}
+    for velho in sorted(ids, key=lambda k: ids[k]["visto"])[:-800]:
+        del ids[velho]
+
+
+def descartada(o, estado):
+    ch = chave_oferta(o)
+    if any(d and (d in ch or d in o["link"]) for d in CFG.get("descartes", [])):  # lista manual (permanente)
+        return True
+    for d in estado.get("descartes", {}).values():
+        if d["chave"] == ch and (d["tg"] or d["sig"] == assinatura(o)):
+            return True
+    return False
+
+
+def processar_bot(estado):
+    """Lê o que você mandou ao bot desde a última leitura: ❌ nos alertas ou link do painel.
+    Retorna as confirmações a enviar depois que o estado for salvo."""
+    if not os.getenv("TELEGRAM_BOT_TOKEN"):
+        return []
+    permitidos = {c.strip() for c in (os.getenv("TELEGRAM_CHAT_ID") or "").split(",") if c.strip().lstrip("-").isdigit()}
+    try:
+        if not estado.get("bot_user"):
+            estado["bot_user"] = (tg_api("getMe") or {}).get("username", "")
+        upds = tg_api("getUpdates", offset=estado.get("tg_offset", 0) + 1, timeout=0) or []
+    except Exception as e:
+        log(f"Bot: não consegui ler mensagens ({e})")
+        return []
+    desc = estado.setdefault("descartes", {})
+    agora = AGORA
+    for k in [k for k, d in desc.items() if datetime.fromisoformat(d["expira"]) < agora]:
+        del desc[k]  # descarte vencido: a oferta volta a valer
+    respostas = []
+    for u in upds:
+        estado["tg_offset"] = max(estado.get("tg_offset", 0), u["update_id"])
+        cb, msg = u.get("callback_query"), u.get("message")
+        quem = str((cb or {}).get("from", {}).get("id") or (msg or {}).get("chat", {}).get("id") or "")
+        texto = (cb or {}).get("data") or (msg or {}).get("text") or ""
+        if quem not in permitidos:
+            continue  # só você pode descartar
+        m = re.match(r"(?:d:|/start d_)([0-9a-f]{10})", texto)
+        if m:
+            info = estado.get("ids", {}).get(m.group(1))
+            if not info:
+                resp = "Não encontrei essa oferta (pode ter saído das lojas há dias)."
+            else:
+                dias = 30 if info["tg"] else 1  # loja: o descarte vale 24 h
+                desc[m.group(1)] = {**info, "expira": (agora + timedelta(days=dias)).isoformat(timespec="minutes"),
+                                    "em": agora.isoformat(timespec="minutes")}
+                resp = f"❌ Descartado: {html.escape(info['desc'])}\nSai do painel, dos alertas e dos recordes."
+        elif texto.strip() == "/desfazer" and desc:
+            ultimo = max(desc, key=lambda k: desc[k]["em"])
+            resp = f"↩️ Restaurado: {html.escape(desc.pop(ultimo)['desc'])}"
+        else:
+            continue
+        respostas.append((quem, resp))
+        if cb:
+            try:
+                tg_api("answerCallbackQuery", callback_query_id=cb["id"], text="Recebido")
+            except Exception:
+                pass  # toque antigo: o Telegram não aceita mais a resposta, sem problema
+    return respostas
 
 
 def selo(o):
@@ -443,13 +539,17 @@ def alertas(ofertas, estado):
         if chave in estado["alertados"]:
             continue
         estado["alertados"].append(chave)
-        msgs.append(f"🚨 <b>PS5 ≤ {br(alvo)}</b> — {', '.join(bateu)}\n" + linha_msg(o))
+        msgs.append((f"🚨 <b>PS5 ≤ {br(alvo)}</b> — {', '.join(bateu)}\n" + linha_msg(o), o))
 
     # (b) recordes por categoria (só PS5; GTA 6 fica no painel e no resumo)
     rec = estado.setdefault("recordes", {})
     for prod in ("ps5",):
         atual = melhores(recentes, prod)
         rp = rec.setdefault(prod, {})
+        descartadas = {d["chave"] for d in estado.get("descartes", {}).values()}
+        for cat in [c for c, r in rp.items() if r.get("chave", r["link"]) in descartadas
+                    or any(x and x in r.get("chave", r["link"]) for x in CFG.get("descartes", []))]:
+            del rp[cat]  # recorde vinha de oferta descartada: recalcula sem alertar
         por_oferta = {}
         for cat, nome in CATS:
             if cat not in atual:
@@ -458,18 +558,18 @@ def alertas(ofertas, estado):
             ant = rp.get(cat)
             if ant and valor > ant["valor"] - 1:  # precisa cair pelo menos R$ 1
                 continue
-            rp[cat] = {"valor": valor, "link": o["link"], "loja": o["loja"],
+            rp[cat] = {"valor": valor, "link": o["link"], "chave": chave_oferta(o), "loja": o["loja"],
                        "quando": AGORA.astimezone(SP).strftime("%d/%m %H:%M")}
             if ant:  # na 1ª execução só registra, sem alertar
                 chave = o.get("post") or o["link"]
                 por_oferta.setdefault(chave, (o, []))[1].append(
                     f"• {nome}: <b>{br(valor)}</b> (antes {br(ant['valor'])}, −{br(ant['valor'] - valor)})")
         for o, linhas in por_oferta.values():
-            msgs.append(f"📉 <b>Novo menor preço {NOME_PROD[prod]}</b>\n" + "\n".join(linhas) + "\n" + linha_msg(o))
+            msgs.append((f"📉 <b>Novo menor preço {NOME_PROD[prod]}</b>\n" + "\n".join(linhas) + "\n" + linha_msg(o), o))
     estado["alertados"] = estado["alertados"][-500:]
-    if msgs:
-        cab = f"🔔 {AGORA.astimezone(SP):%d/%m %H:%M}\n\n"
-        enviar_telegram(cab + "\n\n".join(msgs) + "\n\nConfira o preço no carrinho antes de pagar.")
+    for texto, o in msgs:  # uma mensagem por oferta, cada uma com seu botão de descarte
+        enviar_telegram(f"🔔 {AGORA.astimezone(SP):%d/%m %H:%M}\n\n{texto}\n\nConfira o preço no carrinho antes de pagar.",
+                        botoes=[("❌ Não funcionou (descartar)", f"d:{id_oferta(o)}")])
     return len(msgs)
 
 
@@ -491,7 +591,7 @@ def resumo_diario(ofertas, estado, forcar=False):
     if not forcar and (hoje.hour < CFG["hora_resumo_diario"] or estado.get("resumo_enviado") == hoje.strftime("%Y-%m-%d")):
         return False
     estado["resumo_enviado"] = hoje.strftime("%Y-%m-%d")
-    blocos = [f"📊 <b>Resumo {hoje:%d/%m %H:%M}</b>"]
+    blocos, botoes, ja = [f"📊 <b>Resumo {hoje:%d/%m %H:%M}</b>"], [], set()
     for prod, emoji in (("ps5", "🎮"), ("gta6", "🕹️")):
         m = melhores(ofertas, prod)
         blocos.append(f"{emoji} <b>{NOME_PROD[prod]} — menores preços agora</b>")
@@ -502,10 +602,13 @@ def resumo_diario(ofertas, estado, forcar=False):
             if cat in m:
                 v, o = m[cat]
                 blocos.append(f"<b>{nome}: {br(v)}</b>\n" + linha_msg(o))
+                if id_oferta(o) not in ja:
+                    ja.add(id_oferta(o))
+                    botoes.append((f"❌ {NOME_PROD[prod]} {o['loja']} {br(v)}", f"d:{id_oferta(o)}"))
     url = os.getenv("PAGINA_URL")
     if url:
         blocos.append(f"📱 Todos os preços: {url}")
-    enviar_telegram("\n\n".join(blocos))
+    enviar_telegram("\n\n".join(blocos), botoes=botoes)
     return True
 
 
@@ -533,7 +636,10 @@ def gerar_painel(ofertas, estado):
         return (f'<article class="c{" alvo" if no_alvo else ""}"><div class="h"><b>{e(o["loja"])}</b>'
                 f'{"<em>NO ALVO</em>" if no_alvo else ""}</div><div class="t">{e(o["titulo"])}</div>'
                 f'<div class="g">{"".join(cel)}</div><div class="o">{" · ".join(obs)}</div>'
-                f'<a class="b" href="{e(o["link"])}" target="_blank" rel="noopener">Abrir oferta →</a></article>')
+                f'<a class="b" href="{e(o["link"])}" target="_blank" rel="noopener">Abrir oferta →</a>'
+                + (f'<a class="x" href="https://t.me/{e(estado["bot_user"])}?start=d_{id_oferta(o)}">'
+                   f'❌ Não funcionou? Descartar pelo bot</a>' if estado.get("bot_user") else "")
+                + '</article>')
 
     def secao(prod, titulo):
         m = melhores(ofertas, prod)
@@ -572,6 +678,7 @@ main{{max-width:680px;margin:auto;padding:16px}}h1{{font-size:20px;margin:0 0 4p
 .v b{{display:block;font-size:15px;font-variant-numeric:tabular-nums}}.o{{font-size:13px;color:var(--mu);margin-top:8px}}
 code{{font-size:12px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;padding:0 4px}}
 .ok{{color:var(--ok)}}.wa{{color:var(--wa)}}.zo{{color:var(--ac)}}
+.x{{display:block;text-align:center;margin-top:8px;font-size:13px;color:var(--mu)}}
 .b{{display:block;text-align:center;margin-top:10px;padding:9px;border-radius:8px;background:var(--ac);color:#fff;text-decoration:none;font-weight:600}}
 details{{margin-top:6px}}summary{{cursor:pointer;color:var(--mu);font-size:13px;padding:6px 0}}
 table{{border-collapse:collapse;width:100%;background:var(--card);font-size:13px;font-variant-numeric:tabular-nums}}
@@ -589,7 +696,12 @@ td,th{{border:1px solid var(--bd);padding:6px;text-align:right}}td:first-child,t
 def main():
     forcar_resumo = "--resumo" in sys.argv
     estado = carregar_estado()
+    confirmacoes = processar_bot(estado)          # ❌ que você tocou desde a última leitura
     ofertas = coletar_kabum() + coletar_vtex() + coletar_zoom() + coletar_telegram()
+    lembrar_ids(ofertas, estado)
+    n_desc = len(ofertas)
+    ofertas = [o for o in ofertas if not descartada(o, estado)]
+    n_desc -= len(ofertas)
     novas = registrar(ofertas, estado)
     n_alertas = alertas(ofertas, estado)
     atualizar_diario(ofertas, estado)
@@ -597,7 +709,9 @@ def main():
     gerar_painel(ofertas, estado)
     estado["ultima_execucao"] = AGORA.astimezone(SP).isoformat(timespec="minutes")
     json.dump(estado, open(ESTADO, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    log(f"ofertas={len(ofertas)} gravadas={len(novas)} alertas={n_alertas} resumo={resumo}")
+    for quem, texto in confirmacoes:  # só confirma depois de salvar o descarte
+        enviar_telegram(texto, destinos=[quem])
+    log(f"ofertas={len(ofertas)} descartadas={n_desc} gravadas={len(novas)} alertas={n_alertas} resumo={resumo}")
 
 
 if __name__ == "__main__":

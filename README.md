@@ -16,6 +16,13 @@ Frequência: a cada **10 min de 24 a 30/11** e a cada **2 h** no resto do ano. O
 
 Os parâmetros (preço-alvo, canais, buscas e vendedores confiáveis) ficam em `config.json`.
 
+## Descartar uma oferta que não funcionou
+- **No Telegram:** cada alerta e o resumo trazem um botão **❌**. Toque nele.
+- **No painel:** cada oferta tem o link **"❌ Não funcionou? Descartar pelo bot"**, que abre o bot; toque em **Iniciar/Enviar**.
+- Na próxima leitura (até ~10 min) a oferta sai do painel, dos alertas e dos recordes, e o bot confirma "❌ Descartado: …". Sem confirmação em ~15 min, toque de novo.
+- Vale para aquela oferta naquele preço: post do Telegram fica descartado (um post novo é outra oferta); oferta de loja volta depois de 24 h ou se o preço mudar.
+- `/desfazer` no bot restaura o último descarte. Plano B: a lista `descartes` no `config.json` (trecho do link ou do post) descarta de forma permanente.
+
 ## Configuração (uma vez)
 
 ### 1. Bot do Telegram (≈ 3 min)

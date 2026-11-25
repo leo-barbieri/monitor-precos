@@ -678,12 +678,18 @@ main{{max-width:680px;margin:auto;padding:16px}}h1{{font-size:20px;margin:0 0 4p
 .v b{{display:block;font-size:15px;font-variant-numeric:tabular-nums}}.o{{font-size:13px;color:var(--mu);margin-top:8px}}
 code{{font-size:12px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;padding:0 4px}}
 .ok{{color:var(--ok)}}.wa{{color:var(--wa)}}.zo{{color:var(--ac)}}
+.atraso{{background:#fff4e5;color:#7a4b00;border:1px solid #f0c36d;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:14px}}
+.atraso a{{color:inherit;font-weight:600;margin-left:4px}}
+@media (prefers-color-scheme:dark){{.atraso{{background:#3a2a0d;color:#f5d48a;border-color:#7a5a1d}}}}
 .x{{display:block;text-align:center;margin-top:8px;font-size:13px;color:var(--mu)}}
 .b{{display:block;text-align:center;margin-top:10px;padding:9px;border-radius:8px;background:var(--ac);color:#fff;text-decoration:none;font-weight:600}}
 details{{margin-top:6px}}summary{{cursor:pointer;color:var(--mu);font-size:13px;padding:6px 0}}
 table{{border-collapse:collapse;width:100%;background:var(--card);font-size:13px;font-variant-numeric:tabular-nums}}
 td,th{{border:1px solid var(--bd);padding:6px;text-align:right}}td:first-child,th:first-child{{text-align:left}}
 </style></head><body><main>
+<div id="atraso" class="atraso" hidden>⚠️ A última leitura tem mais de 25 min. O monitor pode ter parado: abra o GitHub Actions e toque em <b>Run workflow</b>.
+<a href="https://github.com/leo-barbieri/monitor-precos/actions/workflows/monitor.yml">Abrir</a></div>
+<script>try{{if(Date.now()-{int(AGORA.timestamp()*1000)}>25*60*1000)document.getElementById("atraso").hidden=false}}catch(e){{}}</script>
 <h1>🎮 Preços PS5 e GTA 6</h1>
 <div class="mu">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(alvo)} no crédito parcelado, no crédito ou no Pix</div>
 {secao("ps5", "PS5 — console")}{secao("gta6", "GTA 6 — PS5")}

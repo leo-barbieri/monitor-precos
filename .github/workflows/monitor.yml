@@ -84,10 +84,23 @@ jobs:
       - name: Agendar a proxima leitura (so na Black Friday)
         env:
           GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           agora=$(TZ=America/Sao_Paulo date '+%m%d%H%M')
           if [ "$agora" \< "11240000" ] || [ "$agora" \> "11302340" ]; then
             echo "Fora da janela da Black Friday: sem encadeamento."; exit 0
           fi
-          sleep 480
-          gh workflow run monitor.yml --repo "$GITHUB_REPOSITORY" --ref main
+          sleep 420
+          # até 6 tentativas (a API do GitHub às vezes falha por instantes)
+          for i in 1 2 3 4 5 6; do
+            if gh workflow run monitor.yml --repo "$GITHUB_REPOSITORY" --ref main; then
+              echo "Proxima leitura agendada (tentativa $i)."; exit 0
+            fi
+            echo "Tentativa $i falhou."; sleep $((i * 15))
+          done
+          # não deu: avisa no Telegram para você reiniciar com um toque
+          curl -s -o /dev/null "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --form-string "chat_id=${TELEGRAM_CHAT_ID%%,*}" \
+            --form-string "text=⚠️ Monitor de preços parou: não consegui agendar a próxima leitura. Toque em Run workflow para reiniciar: https://github.com/${GITHUB_REPOSITORY}/actions/workflows/monitor.yml"
+          exit 1

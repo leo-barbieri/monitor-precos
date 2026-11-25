@@ -71,7 +71,19 @@
     "credito": 381.66,
     "parcelado": 381.66
    }
+  },
+  "2026-11-25": {
+   "ps5": {
+    "pix": 3909.15,
+    "credito": 4522.0,
+    "parcelado": 4522.0
+   },
+   "gta6": {
+    "pix": 354.93,
+    "credito": 381.66,
+    "parcelado": 381.66
+   }
   }
  },
- "ultima_execucao": "2026-11-24T23:53-03:00"
+ "ultima_execucao": "2026-11-25T00:02-03:00"
 }

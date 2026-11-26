@@ -371,20 +371,16 @@ def avaliar_monitor(titulo, ficha, estrito=False):
     qtd = [int(x) for x in re.findall(r"(\d)\s*x?\s*(?:portas?\s*)?hdmi|hdmi\s*(?:\(|x\s*)(\d)", tudo, re.I) for x in x if x]
     n_hdmi = max(qtd) if qtd else (1 if re.search(r"hdmi", tudo, re.I) else 0)
     tem_dp = bool(re.search(r"displayport|\bdp\b|display\s*port", tudo, re.I))
-    # 6. áudio: alto-falante integrado ou saída de fone
+    # áudio (preferência, não eliminatório): alto-falante integrado ou saída de fone
     nega = re.compile(r"(alto[- ]?falantes?|speakers?|som integrado)\s*[:\-]?\s*(n[aã]o|n/a|sem|nenhum|não aplicável)", re.I)
     falante = bool(re.search(r"alto[- ]?falantes?|som integrado|speakers?|caixas? de som|\d\s*w\s*x\s*2", tudo, re.I)) \
         and not nega.search(tudo) and not re.search(r"sem\s+(alto[- ]?falante|som)", tudo, re.I)
     fone = bool(re.search(r"fone|headphone|\bp2\b|3[,.]5\s*mm|sa[ií]da de [aá]udio|audio\s*out|line[- ]?out|\+\s*[aá]udio", tudo, re.I))
-    if not (falante or fone):
-        if nega.search(tudo) and re.search(r"conectividade de [aá]udio\s*:\s*(n[aã]o|n/a|nenhum)", tudo, re.I):
-            return False, {}, [], "sem alto-falante nem saída de fone"
-        avisos.append("áudio não confirmado")
     marca = next((m for m in MARCAS_PREF if re.search(rf"\b{m}\b", titulo, re.I)), "")
     specs = {"res": res, "painel": tipo_ips.title().replace("Ips", "IPS") if tipo_ips else painel,
              "hz": max(hz) if hz else 0, "hdmi": max(vers) if vers else 0, "n_hdmi": n_hdmi, "dp": tem_dp,
              "falante": falante, "fone": fone, "marca": marca,
-             "pref_portas": n_hdmi >= 2 or (n_hdmi >= 1 and tem_dp)}
+             "pref_portas": n_hdmi >= 2 or (n_hdmi >= 1 and tem_dp), "pref_audio": falante or fone}
     return True, specs, avisos, ""
 
 
@@ -811,8 +807,9 @@ def gerar_painel(ofertas, estado):
         cands = [o for o in ofertas if o["produto"] == prod and confiavel(o)]
         preco = lambda o: min([x for x in valores(o).values() if x] or [9e9])
         if prod == "monitor":
-            # empates de preço: 2+ portas (HDMI ou HDMI+DP) e marca preferida vêm antes
-            cands.sort(key=lambda o: (round(preco(o)), not o["specs"]["pref_portas"], not o["specs"]["marca"]))
+            # empates de preço: 2+ portas (HDMI ou HDMI+DP), áudio (alto-falante/fone) e marca preferida vêm antes
+            cands.sort(key=lambda o: (round(preco(o)), not o["specs"]["pref_portas"],
+                                      not o["specs"].get("pref_audio"), not o["specs"]["marca"]))
             qhd = min([preco(o) for o in cands if o["specs"]["res"] == "QHD"] or [9e9])
             for o in cands:
                 o.pop("destaque_4k", None)

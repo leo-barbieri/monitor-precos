@@ -20,10 +20,10 @@ Os parâmetros (preço-alvo, canais, buscas e vendedores confiáveis) ficam em `
 Buscado nas mesmas fontes (KaBuM, Americanas, Zoom e canais do Telegram). Só entra o que cumpre **todos** os critérios:
 1. 27" a 27,9"  2. QHD ou 4K (Full HD fora)  3. Painel IPS (Fast/Nano/SS IPS valem; VA e TN fora)
 4. HDMI 2.0+ (só HDMI 1.4 fica fora; sem versão informada entra com "⚠️ versão HDMI não confirmada")
-5. 60 Hz ou mais  6. Alto-falante ou saída de fone (sem informação entra com "⚠️ áudio não confirmado")
+5. 60 Hz ou mais
 
-- A ficha técnica vem da página do produto na KaBuM e da descrição na Americanas. No Zoom e no Telegram só há o título, então HDMI e áudio costumam vir com aviso, e nos posts do Telegram resolução e painel precisam estar no título.
-- Empates de preço: 2+ portas (HDMI ou HDMI + DisplayPort) e marcas LG, Samsung, AOC, Dell, ASUS, Philips, Gigabyte, MSI e BenQ vêm antes. Um 4K até R$ 200 acima do QHD mais barato ganha o selo ⭐.
+- A ficha técnica vem da página do produto na KaBuM e da descrição na Americanas. No Zoom e no Telegram só há o título, então a versão do HDMI costuma vir com aviso, e nos posts do Telegram resolução e painel precisam estar no título.
+- Empates de preço: 2+ portas (HDMI ou HDMI + DisplayPort), alto-falante ou saída de fone P2 e marcas LG, Samsung, AOC, Dell, ASUS, Philips, Gigabyte, MSI e BenQ vêm antes. Um 4K até R$ 200 acima do QHD mais barato ganha o selo ⭐.
 - Sem preço-alvo: só alerta de **novo menor preço** (parcelado, crédito e Pix).
 
 ## Descartar uma oferta que não funcionou

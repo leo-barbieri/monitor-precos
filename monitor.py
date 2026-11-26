@@ -49,8 +49,14 @@ def baixar(url, timeout=25):
         return r.read().decode("utf-8", "replace")
 
 
+MONITOR_RUIM = re.compile(r"\b(suporte|bra[cç]o|pedestal|cabo|capa|pel[ií]cula|limpa|adaptador|"
+                          r"usado|seminovo|vitrine|recondicionado|mostru[aá]rio|tv|smart|port[aá]til|notebook)\b", re.I)
+
+
 def classificar(titulo):
-    """Retorna 'ps5', 'gta6' ou None."""
+    """Retorna 'ps5', 'monitor', 'gta6' ou None."""
+    if re.search(r"\bmonitor\b", titulo, re.I) and not MONITOR_RUIM.search(titulo):
+        return "monitor"
     if GTA6.search(titulo) and not GTA6_RUIM.search(titulo):
         return "gta6"
     if re.search(r"\b(usado|seminovo|vitrine|japon[eê]s|110v|importado|recondicionado|ps4|ps3)\b", titulo, re.I):
@@ -100,6 +106,7 @@ def coletar_kabum():
                     "n_parcelas": n_parc, "preco_pix": float(it.get("priceWithDiscount") or 0),
                     "cupom": "", "verificado": "sim",
                     "link": f"https://www.kabum.com.br/produto/{it['code']}/{it.get('friendlyName', '')}",
+                    "kabum_id": it["code"],
                 })
     return ofertas
 
@@ -135,6 +142,9 @@ def coletar_vtex():
                             "parcelas": f"{melhor['NumberOfInstallments']}x de {br(melhor['Value'])}" if melhor else "",
                             "n_parcelas": melhor["NumberOfInstallments"] if melhor else 1,
                             "preco_pix": float(pix), "cupom": "", "verificado": "sim", "link": p["link"],
+                            "ficha": " \n ".join([html.unescape(re.sub(r"<[^>]+>", " ", p.get("description") or ""))]
+                                                + [f"{k}: {', '.join(map(str, p.get(k) or []))}"
+                                                   for k in p.get("allSpecifications", [])]),
                         })
                         break
     return ofertas
@@ -211,7 +221,7 @@ def extrair_precos(texto):
 LOJAS_LINK = {"meli.la": "Mercado Livre", "mercadolivre": "Mercado Livre", "amazon": "Amazon",
               "amzn": "Amazon", "shopee": "Shopee", "magazineluiza": "Magalu", "magalu": "Magalu",
               "kabum": "KaBuM", "casasbahia": "Casas Bahia", "aliexpress": "AliExpress",
-              "carrefour": "Carrefour", "fastshop": "Fast Shop", "tidd.ly": "Magalu (afiliado)"}
+              "carrefour": "Carrefour", "fastshop": "Fast Shop", "mercado livre": "Mercado Livre", "tidd.ly": "Magalu (afiliado)"}
 
 
 def _valor(s):
@@ -259,7 +269,7 @@ def coletar_telegram():
                 if not tipo:
                     continue
                 pix, parcelado, n_parc = extrair_precos(texto)
-                faixa = (CFG["ps5_piso_post"], 8000) if tipo == "ps5" else (100, 1000)  # fora disso é combo/erro
+                faixa = {"ps5": (CFG["ps5_piso_post"], 8000), "monitor": (400, 10000)}.get(tipo, (100, 1000))  # fora disso é combo/erro
                 if not (faixa[0] <= max(pix, parcelado) <= faixa[1]):
                     continue
                 links = [l for l in re.findall(r'href="(https?://[^"]+)"', bruto) if "t.me/" not in l]
@@ -270,7 +280,7 @@ def coletar_telegram():
                 loja = (next((n for k, n in LOJAS_LINK.items() if k in link), None)
                         or (loja_txt and (loja_txt.group(1) or loja_txt.group(2)))
                         or next((n for k, n in LOJAS_LINK.items() if k in texto.lower()), "?"))
-                cupom = re.search(r"cupom[:\s]*([A-Z0-9]{4,})", texto, re.I)
+                cupom = re.search(r"(?i:cupom)[:\s]*([A-Z0-9]{4,})\b", texto)
                 preco = parcelado or pix
                 ofertas.append({
                     "produto": tipo, "fonte": f"Telegram: {canal}", "loja": loja,
@@ -280,12 +290,134 @@ def coletar_telegram():
                     "n_parcelas": n_parc,
                     "preco_pix": pix,
                     "cupom": cupom.group(1) if cupom else "", "verificado": "não",
-                    "link": link, "post": f"https://t.me/{post.group(1)}",
+                    "ficha": texto, "link": link, "post": f"https://t.me/{post.group(1)}",
                     "hora_post": dt.astimezone(SP).strftime("%d/%m %H:%M"), "dt_post": dt,
                 })
     # mesmo post aparece em mais de uma busca
     unicos = {o["post"]: o for o in ofertas}
     return list(unicos.values())
+
+
+# ---------------------------------------------------------------- monitor 27": critérios obrigatórios
+MARCAS_PREF = ("lg", "samsung", "aoc", "dell", "asus", "philips", "gigabyte", "msi", "benq")
+
+
+def ficha_kabum(cod, estado):
+    """Ficha técnica da KaBuM (texto), guardada em cache: ficha não muda de uma leitura para outra."""
+    cache = estado.setdefault("fichas", {})
+    if str(cod) in cache:
+        return cache[str(cod)]
+    try:
+        h = baixar(f"https://www.kabum.com.br/produto/{cod}")
+        p = json.loads(re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', h, re.S).group(1))["props"]["pageProps"]["product"]
+        txt = " \n ".join(str(p.get(k) or "") for k in ("technicalInformation", "description"))
+        txt = html.unescape(re.sub(r"<[^>]+>", " \n ", txt))
+    except Exception as e:
+        log(f"Ficha KaBuM {cod} falhou: {e}")
+        return None  # tenta de novo na próxima leitura
+    cache[str(cod)] = re.sub(r"\s*\n\s*", "\n", txt)[:6000]
+    return cache[str(cod)]
+
+
+def _res(t):
+    if re.search(r"\b(4k|uhd|3840\s*x\s*2160|2160p)\b", t, re.I):
+        return "4K"
+    if re.search(r"\b(w?qhd|2k|quad\s*hd|2560\s*x\s*1440|1440p)\b", t, re.I):
+        return "QHD"
+    if re.search(r"\b(full\s*hd|fhd|1920\s*x\s*1080|1080p)\b", t, re.I):
+        return "FHD"
+    return None
+
+
+def avaliar_monitor(titulo, ficha, estrito=False):
+    """Aplica os 6 critérios obrigatórios. Retorna (aprovado, specs, avisos, motivo_reprovação).
+    estrito=True (posts do Telegram): resolução e painel precisam estar no título do produto."""
+    ficha = ficha or ""
+    if estrito and not (_res(titulo) and re.search(r"\bips\b", titulo, re.I)):
+        return False, {}, [], "post sem resolução/painel no título"
+    tudo = f"{titulo}\n{ficha}"
+    # 1. tamanho 27" a 27,9"
+    tams = [float(x.replace(",", ".")) for x in re.findall(r"\b(\d{2}(?:[.,]\d)?)\s*(?:\"|”|''|′′|pol\b|polegadas)", titulo, re.I)]
+    if tams:
+        if not any(27 <= t < 28 for t in tams):
+            return False, {}, [], f"tamanho {tams[0]:g}\""
+    elif not re.search(r"(?<![\w.,])27(?:[.,]\d)?(?![\w.,])", titulo):
+        return False, {}, [], "tamanho não informado"
+    # 2. resolução QHD ou 4K (o título manda; a ficha só completa)
+    res = _res(titulo) or _res(ficha)
+    if res != "QHD" and res != "4K":
+        return False, {}, [], f"resolução {res or 'não informada'}"
+    # 3. painel IPS
+    if re.search(r"\bips\b", titulo, re.I):
+        painel = "IPS"
+    elif re.search(r"\b(va|tn|oled|pls)\b", titulo, re.I):
+        return False, {}, [], "painel não IPS"
+    elif re.search(r"\bips\b", ficha, re.I) and not re.search(r"(painel|tela)[^\n]{0,25}\b(va|tn)\b", ficha, re.I):
+        painel = "IPS"
+    else:
+        return False, {}, [], "painel não confirmado como IPS"
+    tipo_ips = (re.search(r"\b(fast|nano|ss|rapid)\s*ips\b", tudo, re.I) or [None])[0]
+    # 5. taxa de atualização >= 60 Hz
+    hz = [int(x) for x in re.findall(r"\b(\d{2,3})\s*hz\b", tudo, re.I) if 40 <= int(x) <= 600]
+    if hz and max(hz) < 60:
+        return False, {}, [], f"{max(hz)} Hz"
+    # 4. HDMI 2.0 ou superior
+    avisos = []
+    vers = [float(v) for v in re.findall(r"hdmi\s*(?:v(?:ers[aã]o)?\s*)?\(?\s*([12]\.[0-9])", tudo, re.I)]
+    if vers and max(vers) < 2.0:
+        return False, {}, [], "só HDMI 1.4"
+    if not vers:
+        avisos.append("versão HDMI não confirmada")
+    qtd = [int(x) for x in re.findall(r"(\d)\s*x?\s*(?:portas?\s*)?hdmi|hdmi\s*(?:\(|x\s*)(\d)", tudo, re.I) for x in x if x]
+    n_hdmi = max(qtd) if qtd else (1 if re.search(r"hdmi", tudo, re.I) else 0)
+    tem_dp = bool(re.search(r"displayport|\bdp\b|display\s*port", tudo, re.I))
+    # 6. áudio: alto-falante integrado ou saída de fone
+    nega = re.compile(r"(alto[- ]?falantes?|speakers?|som integrado)\s*[:\-]?\s*(n[aã]o|n/a|sem|nenhum|não aplicável)", re.I)
+    falante = bool(re.search(r"alto[- ]?falantes?|som integrado|speakers?|caixas? de som|\d\s*w\s*x\s*2", tudo, re.I)) \
+        and not nega.search(tudo) and not re.search(r"sem\s+(alto[- ]?falante|som)", tudo, re.I)
+    fone = bool(re.search(r"fone|headphone|\bp2\b|3[,.]5\s*mm|sa[ií]da de [aá]udio|audio\s*out|line[- ]?out|\+\s*[aá]udio", tudo, re.I))
+    if not (falante or fone):
+        if nega.search(tudo) and re.search(r"conectividade de [aá]udio\s*:\s*(n[aã]o|n/a|nenhum)", tudo, re.I):
+            return False, {}, [], "sem alto-falante nem saída de fone"
+        avisos.append("áudio não confirmado")
+    marca = next((m for m in MARCAS_PREF if re.search(rf"\b{m}\b", titulo, re.I)), "")
+    specs = {"res": res, "painel": tipo_ips.title().replace("Ips", "IPS") if tipo_ips else painel,
+             "hz": max(hz) if hz else 0, "hdmi": max(vers) if vers else 0, "n_hdmi": n_hdmi, "dp": tem_dp,
+             "falante": falante, "fone": fone, "marca": marca,
+             "pref_portas": n_hdmi >= 2 or (n_hdmi >= 1 and tem_dp)}
+    return True, specs, avisos, ""
+
+
+def filtrar_monitores(ofertas, estado, max_fichas_novas=60):
+    """Tira os monitores que não cumprem TODOS os critérios; anexa specs/avisos aos aprovados."""
+    saida, novas, pendentes = [], 0, 0
+    for o in ofertas:
+        if o["produto"] != "monitor":
+            saida.append(o)
+            continue
+        ok, _, _, _ = avaliar_monitor(o["titulo"], "")  # 1º filtro pelo título (evita baixar ficha à toa)
+        reprovado_pelo_titulo = not ok and not re.search(r"painel não confirmado|tamanho não informado|resolução não", _)
+        if reprovado_pelo_titulo:
+            continue
+        ficha = o.get("ficha", "")
+        if o.get("kabum_id"):
+            if str(o["kabum_id"]) not in estado.get("fichas", {}) and novas >= max_fichas_novas:
+                pendentes += 1
+                continue  # fica para a próxima leitura
+            novas += str(o["kabum_id"]) not in estado.get("fichas", {})
+            ficha = ficha_kabum(o["kabum_id"], estado)
+            if ficha is None:
+                continue
+        ok, specs, avisos, motivo = avaliar_monitor(o["titulo"], ficha, estrito=bool(o.get("post")))
+        if ok:
+            o["specs"], o["avisos"] = specs, avisos
+            saida.append(o)
+    estado["monitor_fichas_pendentes"] = pendentes
+    fichas = estado.get("fichas", {})
+    if len(fichas) > 600:  # mantém o cache enxuto
+        for k in list(fichas)[:-600]:
+            del fichas[k]
+    return saida
 
 
 # ---------------------------------------------------------------- estado / histórico
@@ -360,7 +492,7 @@ CURTO = {"parcelado": "Parcelado", "credito": "Crédito", "pix": "Pix"}
 
 def mesmo_vendedor(o):
     return not o["vendedor"] or re.sub(r"\W", "", o["vendedor"]).lower() == re.sub(r"\W", "", o["loja"]).lower()
-NOME_PROD = {"ps5": "PS5", "gta6": "GTA 6"}
+NOME_PROD = {"ps5": "PS5", "monitor": "Monitor 27\"", "gta6": "GTA 6"}
 
 
 def valores(o):
@@ -506,6 +638,16 @@ def selo(o):
     return "✅ verificado na loja" if o["verificado"] == "sim" else f"⚠️ não verificado · {o['fonte']} {o['hora_post']}"
 
 
+def resumo_specs(o):
+    sp = o["specs"]
+    partes = [sp["res"], sp["painel"]] + ([f"{sp['hz']}Hz"] if sp["hz"] else [])
+    portas = ([f"{sp['n_hdmi']}x HDMI" + (f" {sp['hdmi']:.1f}" if sp["hdmi"] else "")] if sp["n_hdmi"] else []) \
+        + (["DP"] if sp["dp"] else [])
+    audio = " + ".join((["alto-falante"] if sp["falante"] else []) + (["saída de fone"] if sp["fone"] else []))
+    txt = " · ".join(partes + ([" + ".join(portas)] if portas else []) + ([audio] if audio else []))
+    return txt + (" · ⚠️ " + "; ".join(o["avisos"]) if o.get("avisos") else "")
+
+
 def linha_msg(o):
     v = valores(o)
     vend = "" if mesmo_vendedor(o) else f" ({html.escape(o['vendedor'])})"
@@ -517,6 +659,8 @@ def linha_msg(o):
     if v["pix"]:
         partes.append(f"Pix {br(v['pix'])}")
     extra = f"\n🎟 cupom {html.escape(o['cupom'])}" if o["cupom"] else ""
+    if o.get("specs"):
+        extra += "\n🖥️ " + html.escape(resumo_specs(o))
     return (f"<b>{html.escape(o['loja'])}{vend}</b> — {html.escape(o['titulo'][:70])}\n"
             f"{' | '.join(partes)}{extra}\n{selo(o)}\n{html.escape(o['link'])}")
 
@@ -543,7 +687,7 @@ def alertas(ofertas, estado):
 
     # (b) recordes por categoria (só PS5; GTA 6 fica no painel e no resumo)
     rec = estado.setdefault("recordes", {})
-    for prod in ("ps5",):
+    for prod in ("ps5", "monitor"):  # GTA 6 só no painel e no resumo
         atual = melhores(recentes, prod)
         rp = rec.setdefault(prod, {})
         descartadas = {d["chave"] for d in estado.get("descartes", {}).values()}
@@ -560,6 +704,8 @@ def alertas(ofertas, estado):
                 continue
             rp[cat] = {"valor": valor, "link": o["link"], "chave": chave_oferta(o), "loja": o["loja"],
                        "quando": AGORA.astimezone(SP).strftime("%d/%m %H:%M")}
+            if prod == "monitor" and estado.get("monitor_fichas_pendentes"):
+                continue  # ainda carregando fichas: recorde atualiza em silêncio
             if ant:  # na 1ª execução só registra, sem alertar
                 chave = o.get("post") or o["link"]
                 por_oferta.setdefault(chave, (o, []))[1].append(
@@ -592,7 +738,7 @@ def resumo_diario(ofertas, estado, forcar=False):
         return False
     estado["resumo_enviado"] = hoje.strftime("%Y-%m-%d")
     blocos, botoes, ja = [f"📊 <b>Resumo {hoje:%d/%m %H:%M}</b>"], [], set()
-    for prod, emoji in (("ps5", "🎮"), ("gta6", "🕹️")):
+    for prod, emoji in (("ps5", "🎮"), ("monitor", "🖥️"), ("gta6", "🕹️")):
         m = melhores(ofertas, prod)
         blocos.append(f"{emoji} <b>{NOME_PROD[prod]} — menores preços agora</b>")
         if not m:
@@ -626,6 +772,17 @@ def gerar_painel(ofertas, estado):
             sub = e(o["parcelas"]) if cat == "parcelado" and v[cat] else ("à vista" if cat == "pix" and v[cat] else "")
             cel.append(f'<div class="v"><span>{CURTO[cat]}</span><b>{br(v[cat]) if v[cat] else "—"}</b><small>{sub}</small></div>')
         obs = []
+        if o.get("specs"):
+            sp = o["specs"]
+            chips = [sp["res"], sp["painel"]] + ([f"{sp['hz']}Hz"] if sp["hz"] else [])
+            chips += [f"{sp['n_hdmi']}x HDMI" + (f" {sp['hdmi']:.1f}" if sp["hdmi"] else "")] if sp["n_hdmi"] else []
+            chips += ["DisplayPort"] if sp["dp"] else []
+            chips += ["🔊 alto-falante"] if sp["falante"] else []
+            chips += ["🎧 saída de fone"] if sp["fone"] else []
+            spec_html = "".join(f'<span class="ch">{e(c)}</span>' for c in chips)
+            spec_html += "".join(f'<span class="ch av">⚠️ {e(a)}</span>' for a in o.get("avisos", []))
+        else:
+            spec_html = ""
         if o["cupom"]:
             obs.append(f'🎟 Cupom <button type="button" class="cp" data-c="{e(o["cupom"])}" '
                        f'aria-label="Copiar cupom {e(o["cupom"])}">{e(o["cupom"])} <span>📋</span></button>')
@@ -634,9 +791,11 @@ def gerar_painel(ofertas, estado):
         obs.append('<span class="ok">✅ lido na loja</span>' if o["verificado"] == "sim"
                    else '<span class="zo">🔎 via Zoom: toque em “Ir à loja”</span>' if o["verificado"] == "zoom"
                    else f'<span class="wa">⚠️ post de {e(o["fonte"].replace("Telegram: ", ""))} às {o["hora_post"]}</span>')
-        return (f'<article class="c{" alvo" if no_alvo else ""}"><div class="h"><b>{e(o["loja"])}</b>'
-                f'{"<em>NO ALVO</em>" if no_alvo else ""}</div><div class="t">{e(o["titulo"])}</div>'
-                f'<div class="g">{"".join(cel)}</div><div class="o">{" · ".join(obs)}</div>'
+        selo4k = o.get("destaque_4k")
+        return (f'<article class="c{" alvo" if no_alvo else ""}{" k4" if selo4k else ""}"><div class="h"><b>{e(o["loja"])}</b>'
+                f'{"<em>NO ALVO</em>" if no_alvo else ""}{f"<em class=k4e>⭐ {e(selo4k)}</em>" if selo4k else ""}</div>'
+                f'<div class="t">{e(o["titulo"])}</div>'
+                f'{f"<div class=sp>{spec_html}</div>" if spec_html else ""}<div class="g">{"".join(cel)}</div><div class="o">{" · ".join(obs)}</div>'
                 f'<a class="b" href="{e(o["link"])}" target="_blank" rel="noopener">Abrir oferta →</a>'
                 + (f'<a class="x" href="https://t.me/{e(estado["bot_user"])}?start=d_{id_oferta(o)}">'
                    f'❌ Não funcionou? Descartar pelo bot</a>' if estado.get("bot_user") else "")
@@ -650,7 +809,18 @@ def gerar_painel(ofertas, estado):
             f'<small>{e(m[cat][1]["loja"]) if cat in m else ""}'
             f'{" · recorde " + br(rec[cat]["valor"]) if cat in rec else ""}</small></div>' for cat, nome in CATS)
         cands = [o for o in ofertas if o["produto"] == prod and confiavel(o)]
-        cands.sort(key=lambda o: min([x for x in valores(o).values() if x] or [9e9]))
+        preco = lambda o: min([x for x in valores(o).values() if x] or [9e9])
+        if prod == "monitor":
+            # empates de preço: 2+ portas (HDMI ou HDMI+DP) e marca preferida vêm antes
+            cands.sort(key=lambda o: (round(preco(o)), not o["specs"]["pref_portas"], not o["specs"]["marca"]))
+            qhd = min([preco(o) for o in cands if o["specs"]["res"] == "QHD"] or [9e9])
+            for o in cands:
+                o.pop("destaque_4k", None)
+                if o["specs"]["res"] == "4K" and preco(o) - qhd <= 200:
+                    dif = preco(o) - qhd
+                    o["destaque_4k"] = "4K por " + ("menos que o QHD" if dif <= 0 else f"+{br(dif)} vs QHD")
+        else:
+            cands.sort(key=preco)
         cards = "".join(card(o, prod) for o in cands[:15]) or '<p class="mu">Nenhuma oferta confiável agora.</p>'
         dias = sorted(estado.get("diario", {}), reverse=True)[:14]
         linhas = "".join(
@@ -678,6 +848,10 @@ main{{max-width:680px;margin:auto;padding:16px}}h1{{font-size:20px;margin:0 0 4p
 .t{{font-size:13px;color:var(--mu);margin:2px 0 8px}}.g{{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}}
 .v b{{display:block;font-size:15px;font-variant-numeric:tabular-nums}}.o{{font-size:13px;color:var(--mu);margin-top:8px}}
 code{{font-size:12px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;padding:0 4px}}
+.sp{{display:flex;flex-wrap:wrap;gap:4px;margin:-2px 0 8px}}
+.ch{{font-size:11px;border:1px solid var(--bd);border-radius:999px;padding:1px 7px;color:var(--mu)}}
+.ch.av{{border-color:var(--wa);color:var(--wa)}}
+.c.k4{{border-color:var(--ac)}}.h em.k4e{{color:var(--ac);border-color:var(--ac)}}
 .cp{{font:600 13px ui-monospace,monospace;color:var(--tx);background:var(--bg);border:1px dashed var(--ac);border-radius:6px;padding:3px 8px;cursor:pointer}}
 .cp.ok{{border-style:solid;border-color:var(--ok);color:var(--ok)}}
 .ok{{color:var(--ok)}}.wa{{color:var(--wa)}}.zo{{color:var(--ac)}}
@@ -695,7 +869,7 @@ td,th{{border:1px solid var(--bd);padding:6px;text-align:right}}td:first-child,t
 <script>try{{if(Date.now()-{int(AGORA.timestamp()*1000)}>25*60*1000)document.getElementById("atraso").hidden=false}}catch(e){{}}</script>
 <h1>🎮 Preços PS5 e GTA 6</h1>
 <div class="mu">Checado em {agora:%d/%m/%Y %H:%M} (Brasília) · alvo PS5 {br(alvo)} no crédito parcelado, no crédito ou no Pix</div>
-{secao("ps5", "PS5 — console")}{secao("gta6", "GTA 6 — PS5")}
+{secao("ps5", "PS5 — console")}{secao("monitor", "Monitor 27\" QHD/4K IPS")}{secao("gta6", "GTA 6 — PS5")}
 <p class="mu">Crédito = preço no cartão · Crédito parcelado = no cartão em {CFG["parcelas_minimas"]}x ou mais sem juros · ✅ lido na página da loja · 🔎 menor preço do produto no comparador Zoom (Amazon, Magalu, Webcontinental…) · ⚠️ preço informado por canal do Telegram. Confira no carrinho antes de pagar.</p>
 </main>
 <script>
@@ -718,6 +892,7 @@ def main():
     estado = carregar_estado()
     confirmacoes = processar_bot(estado)          # ❌ que você tocou desde a última leitura
     ofertas = coletar_kabum() + coletar_vtex() + coletar_zoom() + coletar_telegram()
+    ofertas = filtrar_monitores(ofertas, estado)  # só os que cumprem os 6 critérios
     lembrar_ids(ofertas, estado)
     n_desc = len(ofertas)
     ofertas = [o for o in ofertas if not descartada(o, estado)]

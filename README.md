@@ -16,6 +16,16 @@ Frequência: a cada **10 min de 24 a 30/11** e a cada **2 h** no resto do ano. O
 
 Os parâmetros (preço-alvo, canais, buscas e vendedores confiáveis) ficam em `config.json`.
 
+## Monitor 27" (QHD/4K, IPS)
+Buscado nas mesmas fontes (KaBuM, Americanas, Zoom e canais do Telegram). Só entra o que cumpre **todos** os critérios:
+1. 27" a 27,9"  2. QHD ou 4K (Full HD fora)  3. Painel IPS (Fast/Nano/SS IPS valem; VA e TN fora)
+4. HDMI 2.0+ (só HDMI 1.4 fica fora; sem versão informada entra com "⚠️ versão HDMI não confirmada")
+5. 60 Hz ou mais  6. Alto-falante ou saída de fone (sem informação entra com "⚠️ áudio não confirmado")
+
+- A ficha técnica vem da página do produto na KaBuM e da descrição na Americanas. No Zoom e no Telegram só há o título, então HDMI e áudio costumam vir com aviso, e nos posts do Telegram resolução e painel precisam estar no título.
+- Empates de preço: 2+ portas (HDMI ou HDMI + DisplayPort) e marcas LG, Samsung, AOC, Dell, ASUS, Philips, Gigabyte, MSI e BenQ vêm antes. Um 4K até R$ 200 acima do QHD mais barato ganha o selo ⭐.
+- Sem preço-alvo: só alerta de **novo menor preço** (parcelado, crédito e Pix).
+
 ## Descartar uma oferta que não funcionou
 - **No Telegram:** cada alerta e o resumo trazem um botão **❌**. Toque nele.
 - **No painel:** cada oferta tem o link **"❌ Não funcionou? Descartar pelo bot"**, que abre o bot; toque em **Iniciar/Enviar**.

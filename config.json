@@ -21,6 +21,12 @@
     ],
     "gta6": [
       "gta-vi-ps5"
+    ],
+    "monitor": [
+      "monitor-27-qhd-ips?page_size=100&sort=price&page_number=1",
+      "monitor-27-qhd-ips?page_size=100&sort=price&page_number=2",
+      "monitor-27-4k-ips?page_size=100&sort=price&page_number=1",
+      "monitor-27-4k-ips?page_size=100&sort=price&page_number=2"
     ]
   },
   "canais_telegram": {
@@ -29,49 +35,56 @@
       "playstation",
       "console",
       "gta",
-      "grand theft"
+      "grand theft",
+      "monitor"
     ],
     "xetdaspromocoes": [
       "ps5",
       "playstation",
       "console",
       "gta",
-      "grand theft"
+      "grand theft",
+      "monitor"
     ],
     "TJGOFERTASs": [
       "ps5",
       "playstation",
       "console",
       "gta",
-      "grand theft"
+      "grand theft",
+      "monitor"
     ],
     "ofertasplaystationbr": [
       "ps5",
       "playstation",
       "console",
       "gta",
-      "grand theft"
+      "grand theft",
+      "monitor"
     ],
     "meups4": [
       "ps5",
       "playstation",
       "console",
       "gta",
-      "grand theft"
+      "grand theft",
+      "monitor"
     ],
     "jogobarato": [
       "ps5",
       "playstation",
       "console",
       "gta",
-      "grand theft"
+      "grand theft",
+      "monitor"
     ],
     "achadosdotb": [
       "ps5",
       "playstation",
       "console",
       "gta",
-      "grand theft"
+      "grand theft",
+      "monitor"
     ]
   },
   "lojas_vtex": {
@@ -84,6 +97,11 @@
         "gta6": [
           "grand theft auto vi ps5",
           "gta vi ps5"
+        ],
+        "monitor": [
+          "monitor 27 ips qhd",
+          "monitor 27 ips 4k",
+          "monitor 27 2k ips"
         ]
       }
     }
@@ -96,6 +114,10 @@
     ],
     "gta6": [
       "gta vi ps5"
+    ],
+    "monitor": [
+      "monitor 27 ips qhd",
+      "monitor 27 ips 4k"
     ]
   },
   "descartes": [
